@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual env
+.venv/
+venv/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Chinvex indexes
+hybrid.db
+chroma/
+
+# Local configs
+*.local.json
+*.local.toml
+*.env
+
+# OS
+Thumbs.db
+Desktop.ini
