@@ -45,6 +45,16 @@ Optional overrides:
 chinvex-mcp --config .\config.json --ollama-host http://skynet:11434 --k 8 --min-score 0.30
 ```
 
+### Codex config.toml
+```
+[mcp_servers.chinvex]
+command = "C:\\Code\\chindex\\.venv\\Scripts\\chinvex-mcp.exe"
+args = ["--config", "C:\\Code\\chindex\\config.json"]
+cwd = "C:\\Code\\chindex"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+```
+
 ### Cursor / Claude Desktop MCP config
 ```json
 {
