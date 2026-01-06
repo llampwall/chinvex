@@ -107,6 +107,7 @@ Example output (truncated):
 - FTS5 missing: install a Python build with SQLite FTS5 enabled.
 - Ollama connection/model missing: ensure Ollama is running and `ollama pull mxbai-embed-large` completed.
 - Windows path issues: use escaped backslashes in JSON or forward slashes.
+- Concurrency: only one ingest should run at a time (a lock file `hybrid.db.lock` is used). If you see lock errors, wait for the other ingest to finish.
 
 ## Smoke Test
 ```powershell

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from portalocker import Lock, LockException
+
 from .chunking import chunk_chat, chunk_repo
 from .config import AppConfig, SourceConfig
 from .embed import OllamaEmbedder
@@ -18,26 +20,33 @@ def ingest(config: AppConfig, *, ollama_host_override: str | None = None) -> dic
     chroma_dir = index_dir / "chroma"
     chroma_dir.mkdir(parents=True, exist_ok=True)
 
-    storage = Storage(db_path)
-    storage.ensure_schema()
+    lock_path = index_dir / "hybrid.db.lock"
+    try:
+        with Lock(lock_path, timeout=60):
+            storage = Storage(db_path)
+            storage.ensure_schema()
 
-    ollama_host = ollama_host_override or config.ollama_host
-    embedder = OllamaEmbedder(ollama_host, config.embedding_model)
-    vectors = VectorStore(chroma_dir)
+            ollama_host = ollama_host_override or config.ollama_host
+            embedder = OllamaEmbedder(ollama_host, config.embedding_model)
+            vectors = VectorStore(chroma_dir)
 
-    stats = {"documents": 0, "chunks": 0, "skipped": 0}
-    started_at = now_iso()
-    run_id = sha256_text(started_at)
+            stats = {"documents": 0, "chunks": 0, "skipped": 0}
+            started_at = now_iso()
+            run_id = sha256_text(started_at)
 
-    for source in config.sources:
-        if source.type == "repo":
-            _ingest_repo(source, storage, embedder, vectors, stats)
-        elif source.type == "chat":
-            _ingest_chat(source, storage, embedder, vectors, stats)
+            for source in config.sources:
+                if source.type == "repo":
+                    _ingest_repo(source, storage, embedder, vectors, stats)
+                elif source.type == "chat":
+                    _ingest_chat(source, storage, embedder, vectors, stats)
 
-    storage.record_run(run_id, started_at, dump_json(stats))
-    storage.close()
-    return stats
+            storage.record_run(run_id, started_at, dump_json(stats))
+            storage.close()
+            return stats
+    except LockException as exc:
+        raise RuntimeError(
+            "Ingest lock is held by another process. Only one ingest can run at a time."
+        ) from exc
 
 
 def _ingest_repo(source: SourceConfig, storage: Storage, embedder: OllamaEmbedder, vectors: VectorStore, stats: dict) -> None:
