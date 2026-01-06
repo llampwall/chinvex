@@ -21,6 +21,13 @@ class SearchResult:
     snippet: str
 
 
+@dataclass
+class ScoredChunk:
+    chunk_id: str
+    score: float
+    row: Any
+
+
 def search(
     config: AppConfig,
     query: str,
@@ -45,12 +52,58 @@ def search(
     if repo:
         filters["repo"] = repo
 
-    lex_rows = storage.search_fts(query, limit=30, filters=filters)
-    lex_scores = _normalize_lex(lex_rows)
-
     ollama_host = ollama_host_override or config.ollama_host
     embedder = OllamaEmbedder(ollama_host, config.embedding_model)
     vectors = VectorStore(chroma_dir)
+    scored = search_chunks(
+        storage,
+        vectors,
+        embedder,
+        query,
+        k=k,
+        min_score=min_score,
+        source=source,
+        project=project,
+        repo=repo,
+    )
+    results = [
+        SearchResult(
+            chunk_id=item.chunk_id,
+            score=item.score,
+            source_type=item.row["source_type"],
+            title=_title_from_row(item.row),
+            citation=_citation_from_row(item.row),
+            snippet=make_snippet(item.row["text"], limit=200),
+        )
+        for item in scored
+    ]
+    storage.close()
+    return results[:k]
+
+
+def search_chunks(
+    storage: Storage,
+    vectors: VectorStore,
+    embedder: OllamaEmbedder,
+    query: str,
+    *,
+    k: int = 8,
+    min_score: float = 0.35,
+    source: str = "all",
+    project: str | None = None,
+    repo: str | None = None,
+) -> list[ScoredChunk]:
+    filters = {}
+    if source in {"repo", "chat"}:
+        filters["source_type"] = source
+    if project:
+        filters["project"] = project
+    if repo:
+        filters["repo"] = repo
+
+    lex_rows = storage.search_fts(query, limit=30, filters=filters)
+    lex_scores = _normalize_lex(lex_rows)
+
     where = {}
     if source in {"repo", "chat"}:
         where["source_type"] = source
@@ -70,7 +123,7 @@ def search(
         merged.setdefault(chunk_id, {})["vec"] = vec_score
 
     recency_map = _recency_norm(lex_rows)
-    results: list[SearchResult] = []
+    results: list[ScoredChunk] = []
     for chunk_id, data in merged.items():
         row = data.get("row")
         if row is None:
@@ -88,21 +141,11 @@ def search(
             score += 0.05
         score += 0.05 * recency_map.get(chunk_id, 0.0)
         score = min(1.0, max(0.0, score))
+        if score < min_score:
+            continue
+        results.append(ScoredChunk(chunk_id=chunk_id, score=score, row=row))
 
-        results.append(
-            SearchResult(
-                chunk_id=chunk_id,
-                score=score,
-                source_type=row["source_type"],
-                title=_title_from_row(row),
-                citation=_citation_from_row(row),
-                snippet=_snippet(row["text"]),
-            )
-        )
-
-    results = [r for r in results if r.score >= min_score]
     results.sort(key=lambda r: r.score, reverse=True)
-    storage.close()
     return results[:k]
 
 
@@ -186,6 +229,6 @@ def _citation_from_row(row) -> str:
     return f"{conversation_id} [{title}] (msgs {msg_start}-{msg_end})"
 
 
-def _snippet(text: str, limit: int = 200) -> str:
+def make_snippet(text: str, limit: int = 200) -> str:
     snippet = " ".join(text.split())
     return snippet[:limit]
