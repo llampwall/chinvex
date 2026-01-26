@@ -17,15 +17,15 @@
 | Task 1 | ✅ DONE | Schema Version + Meta Table |
 | Task 2 | ✅ DONE | Add source_fingerprints Table |
 | Task 3 | ✅ DONE | Context Registry Data Structures |
-| Task 4 | ❌ TODO | CLI Command - context create |
-| Task 5 | ❌ TODO | CLI Command - context list |
+| Task 4 | ✅ DONE | CLI Command - context create |
+| Task 5 | ✅ DONE | CLI Command - context list |
 | Task 6 | ✅ DONE | Auto-Migration from Old Config Format |
 | Task 7 | ✅ DONE | Conversation Chunking with Token Approximation |
 | Task 8 | ✅ DONE | Codex App-Server Client (Schema Capture) |
-| Task 9 | ❌ TODO | Codex App-Server Schemas (Pydantic) |
-| Task 10 | ❌ TODO | Normalize App-Server to ConversationDoc |
+| Task 9 | ✅ DONE | Codex App-Server Schemas (Pydantic) |
+| Task 10 | ✅ DONE | Normalize App-Server to ConversationDoc |
 
-**Next:** Start with Task 4 (CLI Command - context create)
+**Next:** PART 1 COMPLETE - Move to PART 2
 
 ---
 
