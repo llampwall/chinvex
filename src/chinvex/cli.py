@@ -65,38 +65,77 @@ def ingest_cmd(
 @app.command("search")
 def search_cmd(
     query: str = typer.Argument(..., help="Search query"),
-    config: Path = typer.Option(Path("config.json"), "--config", help="Path to config JSON"),
+    context: str | None = typer.Option(None, "--context", "-c", help="Context name to search"),
+    config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     k: int = typer.Option(8, "--k", help="Top K results"),
     min_score: float = typer.Option(0.35, "--min-score", help="Minimum score threshold"),
-    source: str = typer.Option("all", "--source", help="all|repo|chat"),
+    source: str = typer.Option("all", "--source", help="all|repo|chat|codex_session"),
     project: str | None = typer.Option(None, "--project", help="Filter by project"),
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
-    if source not in {"all", "repo", "chat"}:
-        raise typer.BadParameter("source must be one of: all, repo, chat")
-    cfg = _load_config(config)
-    results = search(
-        cfg,
-        query,
-        k=k,
-        min_score=min_score,
-        source=source,
-        project=project,
-        repo=repo,
-        ollama_host_override=ollama_host,
-    )
-    if not results:
-        typer.echo("No results.")
-        raise typer.Exit(code=0)
 
-    for idx, result in enumerate(results, start=1):
-        typer.echo(f"{idx}. score={result.score:.3f} source={result.source_type}")
-        typer.echo(f"   {result.title}")
-        typer.echo(f"   {result.citation}")
-        typer.echo(f"   {result.snippet}")
+    if not context and not config:
+        typer.secho("Error: Must provide either --context or --config", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    if source not in {"all", "repo", "chat", "codex_session"}:
+        raise typer.BadParameter("source must be one of: all, repo, chat, codex_session")
+
+    if context:
+        # New context-based search
+        from .context import load_context
+        from .search import search_context
+
+        contexts_root = get_contexts_root()
+        ctx = load_context(context, contexts_root)
+
+        results = search_context(
+            ctx,
+            query,
+            k=k,
+            min_score=min_score,
+            source=source,
+            project=project,
+            repo=repo,
+            ollama_host_override=ollama_host,
+        )
+
+        if not results:
+            typer.echo("No results found.")
+            return
+
+        for i, result in enumerate(results, 1):
+            typer.secho(f"\n[{i}] {result.title}", fg=typer.colors.CYAN, bold=True)
+            typer.echo(f"Score: {result.score:.3f} | Type: {result.source_type}")
+            typer.echo(f"Citation: {result.citation}")
+            typer.echo(f"Snippet: {result.snippet}")
+    else:
+        # Old config-based search (deprecated)
+        typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
+
+        cfg = _load_config(config)
+        results = search(
+            cfg,
+            query,
+            k=k,
+            min_score=min_score,
+            source=source,
+            project=project,
+            repo=repo,
+            ollama_host_override=ollama_host,
+        )
+        if not results:
+            typer.echo("No results.")
+            raise typer.Exit(code=0)
+
+        for idx, result in enumerate(results, start=1):
+            typer.echo(f"{idx}. score={result.score:.3f} source={result.source_type}")
+            typer.echo(f"   {result.title}")
+            typer.echo(f"   {result.citation}")
+            typer.echo(f"   {result.snippet}")
 
 
 @context_app.command("create")

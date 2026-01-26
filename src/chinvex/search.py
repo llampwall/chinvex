@@ -227,3 +227,62 @@ def _citation_from_row(row) -> str:
 def make_snippet(text: str, limit: int = 200) -> str:
     snippet = " ".join(text.split())
     return snippet[:limit]
+
+
+def search_context(
+    ctx,
+    query: str,
+    *,
+    k: int = 8,
+    min_score: float = 0.35,
+    source: str = "all",
+    project: str | None = None,
+    repo: str | None = None,
+    ollama_host_override: str | None = None,
+) -> list[SearchResult]:
+    """
+    Search within a context using context-aware weights.
+    """
+    from .context import ContextConfig
+    
+    db_path = ctx.index.sqlite_path
+    chroma_dir = ctx.index.chroma_dir
+
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    # Use default Ollama host (could be extended to read from context)
+    ollama_host = ollama_host_override or "http://127.0.0.1:11434"
+    embedding_model = "mxbai-embed-large"  # P0 hardcode
+
+    embedder = OllamaEmbedder(ollama_host, embedding_model)
+    vectors = VectorStore(chroma_dir)
+
+    # Use context weights for source-type prioritization
+    scored = search_chunks(
+        storage,
+        vectors,
+        embedder,
+        query,
+        k=k,
+        min_score=min_score,
+        source=source,
+        project=project,
+        repo=repo,
+        weights=ctx.weights,
+    )
+
+    results = [
+        SearchResult(
+            chunk_id=item.chunk_id,
+            score=item.score,
+            source_type=item.row["source_type"],
+            title=_title_from_row(item.row),
+            citation=_citation_from_row(item.row),
+            snippet=make_snippet(item.row["text"], limit=200),
+        )
+        for item in scored
+    ]
+
+    storage.close()
+    return results[:k]
