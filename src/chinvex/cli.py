@@ -26,14 +26,40 @@ def _load_config(config_path: Path):
 
 @app.command("ingest")
 def ingest_cmd(
-    config: Path = typer.Option(Path("config.json"), "--config", help="Path to config JSON"),
+    context: str | None = typer.Option(None, "--context", "-c", help="Context name to ingest"),
+    config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
-    cfg = _load_config(config)
-    stats = ingest(cfg, ollama_host_override=ollama_host)
-    typer.echo(f"Done. Documents: {stats['documents']} Chunks: {stats['chunks']} Skipped: {stats['skipped']}")
+
+    if not context and not config:
+        typer.secho("Error: Must provide either --context or --config", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    if context:
+        # New context-based ingestion
+        from .context import load_context
+        from .ingest import ingest_context
+
+        contexts_root = get_contexts_root()
+        ctx = load_context(context, contexts_root)
+        stats = ingest_context(ctx, ollama_host_override=ollama_host)
+
+        typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
+        typer.echo(f"  Documents: {stats['documents']}")
+        typer.echo(f"  Chunks: {stats['chunks']}")
+        typer.echo(f"  Skipped: {stats['skipped']}")
+    else:
+        # Old config-based ingestion (deprecated)
+        typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
+
+        cfg = _load_config(config)
+        stats = ingest(cfg, ollama_host_override=ollama_host)
+        typer.secho("Ingestion complete:", fg=typer.colors.GREEN)
+        typer.echo(f"  Documents: {stats['documents']}")
+        typer.echo(f"  Chunks: {stats['chunks']}")
+        typer.echo(f"  Skipped: {stats['skipped']}")
 
 
 @app.command("search")
