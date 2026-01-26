@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from .config import AppConfig
 from .embed import OllamaEmbedder
+from .scoring import normalize_scores, blend_scores
 from .storage import Storage
 from .vectors import VectorStore
 
@@ -38,6 +38,7 @@ def search(
     project: str | None = None,
     repo: str | None = None,
     ollama_host_override: str | None = None,
+    weights: dict[str, float] | None = None,
 ) -> list[SearchResult]:
     db_path = config.index_dir / "hybrid.db"
     chroma_dir = config.index_dir / "chroma"
@@ -65,6 +66,7 @@ def search(
         source=source,
         project=project,
         repo=repo,
+        weights=weights,
     )
     results = [
         SearchResult(
@@ -92,20 +94,29 @@ def search_chunks(
     source: str = "all",
     project: str | None = None,
     repo: str | None = None,
+    weights: dict[str, float] | None = None,
 ) -> list[ScoredChunk]:
+    """
+    Hybrid search with score normalization and weight renormalization.
+
+    Args:
+        weights: Optional source-type weights dict (e.g., {"repo": 1.0, "chat": 0.8})
+                 If None, no weight adjustment applied.
+    """
     filters = {}
-    if source in {"repo", "chat"}:
+    if source in {"repo", "chat", "codex_session"}:
         filters["source_type"] = source
     if project:
         filters["project"] = project
     if repo:
         filters["repo"] = repo
 
+    # Perform FTS search
     lex_rows = storage.search_fts(query, limit=30, filters=filters)
-    lex_scores = _normalize_lex(lex_rows)
 
+    # Perform vector search
     where = {}
-    if source in {"repo", "chat"}:
+    if source in {"repo", "chat", "codex_session"}:
         where["source_type"] = source
     if project:
         where["project"] = project
@@ -114,92 +125,76 @@ def search_chunks(
 
     query_embedding = embedder.embed([query])
     vec_result = vectors.query(query_embedding, n_results=30, where=where)
-    vec_scores = _normalize_vec(vec_result)
 
-    merged: dict[str, dict[str, Any]] = {}
+    # Build candidate set
+    candidates: dict[str, dict] = {}
+
     for row in lex_rows:
-        merged[row["chunk_id"]] = {"lex": lex_scores.get(row["chunk_id"], 0.0), "row": row}
-    for chunk_id, vec_score in vec_scores.items():
-        merged.setdefault(chunk_id, {})["vec"] = vec_score
+        chunk_id = row["chunk_id"]
+        candidates[chunk_id] = {
+            "row": row,
+            "fts_raw": float(row["rank"]),
+            "vec_raw": None,
+        }
 
-    recency_map = _recency_norm(lex_rows)
-    results: list[ScoredChunk] = []
-    for chunk_id, data in merged.items():
-        row = data.get("row")
-        if row is None:
-            row = _fetch_chunk(storage, chunk_id)
-        if row is None:
+    vec_ids = vec_result.get("ids", [[]])[0]
+    vec_distances = vec_result.get("distances", [[]])[0]
+    for chunk_id, dist in zip(vec_ids, vec_distances):
+        if dist is None:
             continue
-        lex = data.get("lex", 0.0)
-        vec = data.get("vec", 0.0)
-        score = 0.55 * lex + 0.45 * vec
+        if chunk_id not in candidates:
+            # Fetch row from storage
+            row = _fetch_chunk(storage, chunk_id)
+            if row is None:
+                continue
+            candidates[chunk_id] = {
+                "row": row,
+                "fts_raw": None,
+                "vec_raw": float(dist),
+            }
+        else:
+            candidates[chunk_id]["vec_raw"] = float(dist)
 
-        meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
-        if project and meta.get("project") == project:
-            score += 0.05
-        if repo and meta.get("repo") == repo:
-            score += 0.05
-        score += 0.05 * recency_map.get(chunk_id, 0.0)
-        score = min(1.0, max(0.0, score))
+    # Normalize FTS scores (BM25 ranks - lower is better, invert)
+    fts_raws = [c["fts_raw"] for c in candidates.values() if c["fts_raw"] is not None]
+    if fts_raws:
+        fts_normalized = normalize_scores([-r for r in fts_raws])  # invert ranks
+        fts_map = dict(zip([cid for cid, c in candidates.items() if c["fts_raw"] is not None], fts_normalized))
+    else:
+        fts_map = {}
+
+    # Normalize vector scores (cosine distance - lower is better, invert)
+    vec_raws = [c["vec_raw"] for c in candidates.values() if c["vec_raw"] is not None]
+    if vec_raws:
+        vec_normalized = normalize_scores([1.0 / (1.0 + d) for d in vec_raws])
+        vec_map = dict(zip([cid for cid, c in candidates.items() if c["vec_raw"] is not None], vec_normalized))
+    else:
+        vec_map = {}
+
+    # Blend scores with weight renormalization
+    results: list[ScoredChunk] = []
+    for chunk_id, data in candidates.items():
+        row = data["row"]
+        fts_norm = fts_map.get(chunk_id)
+        vec_norm = vec_map.get(chunk_id)
+
+        blended = blend_scores(fts_norm, vec_norm)
+
+        # Apply source-type weight if provided
+        if weights:
+            source_type = row["source_type"]
+            weight = weights.get(source_type, 0.5)
+            score = blended * weight
+        else:
+            score = blended
+
         if score < min_score:
             continue
+
         results.append(ScoredChunk(chunk_id=chunk_id, score=score, row=row))
 
     results.sort(key=lambda r: r.score, reverse=True)
     return results[:k]
-
-
-def _normalize_lex(rows) -> dict[str, float]:
-    if not rows:
-        return {}
-    ranks = [row["rank"] for row in rows]
-    min_rank = min(ranks)
-    max_rank = max(ranks) if max(ranks) != min_rank else min_rank + 1.0
-    scores = {}
-    for row in rows:
-        norm = (row["rank"] - min_rank) / (max_rank - min_rank)
-        scores[row["chunk_id"]] = 1.0 - max(0.0, min(1.0, norm))
-    return scores
-
-
-def _normalize_vec(result: dict) -> dict[str, float]:
-    ids = result.get("ids", [[]])[0]
-    distances = result.get("distances", [[]])[0]
-    scores: dict[str, float] = {}
-    for chunk_id, dist in zip(ids, distances):
-        if dist is None:
-            continue
-        score = 1.0 / (1.0 + float(dist))
-        scores[chunk_id] = max(0.0, min(1.0, score))
-    return scores
-
-
-def _recency_norm(rows) -> dict[str, float]:
-    dates = []
-    for row in rows:
-        updated = row["updated_at"]
-        if not updated:
-            continue
-        try:
-            dates.append(datetime.fromisoformat(updated.replace("Z", "+00:00")))
-        except ValueError:
-            continue
-    if not dates:
-        return {}
-    min_dt = min(dates)
-    max_dt = max(dates)
-    span = (max_dt - min_dt).total_seconds() or 1.0
-    scores = {}
-    for row in rows:
-        updated = row["updated_at"]
-        if not updated:
-            continue
-        try:
-            dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        scores[row["chunk_id"]] = max(0.0, min(1.0, (dt - min_dt).total_seconds() / span))
-    return scores
 
 
 def _fetch_chunk(storage: Storage, chunk_id: str):
