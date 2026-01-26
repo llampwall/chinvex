@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, SQLite FTS5, Chroma, Ollama embeddings, Typer CLI, Pydantic schemas, MCP stdio protocol
 
-**Status:** Tasks 11-13 DONE, Tasks 14-18 TODO
+**Status:** Tasks 11-18 DONE (ALL COMPLETE)
 
 ---
 
@@ -887,7 +887,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 14: ❌ TODO - Codex Ingestion with Fingerprinting
+## Task 14: ✅ DONE - Codex Ingestion with Fingerprinting
 
 **Files:**
 - Modify: `src/chinvex/ingest.py`
@@ -1200,7 +1200,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 15: ❌ TODO - Update Search CLI to Use Contexts
+## Task 15: ✅ DONE - Update Search CLI to Use Contexts
 
 **Files:**
 - Modify: `src/chinvex/cli.py`
@@ -1420,7 +1420,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 16: ❌ TODO - chinvex_answer MCP Tool
+## Task 16: ✅ DONE - chinvex_answer MCP Tool
 
 **Files:**
 - Modify: `src/chinvex_mcp/server.py`
@@ -1655,7 +1655,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 17: ❌ TODO - Add requests Dependency
+## Task 17: ✅ DONE - Add requests Dependency
 
 **Files:**
 - Modify: `pyproject.toml` or `setup.py`
@@ -1711,7 +1711,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ---
 
-## Task 18: ❌ TODO - Update README with Context Registry Usage
+## Task 18: ✅ DONE - Update README with Context Registry Usage
 
 **Files:**
 - Modify: `README.md`
