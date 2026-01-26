@@ -1,0 +1,727 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: README.md, docs/**, src/**, packages/**, apps/**, scripts/**, *.md, *.js, *.cjs, *.json, *.ts, *.tsx, *.py, *.cmd, *.ps1, *.txt
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+README.md
+src/chinvex_mcp/__init__.py
+src/chinvex_mcp/server.py
+src/chinvex/__init__.py
+src/chinvex/chunking.py
+src/chinvex/cli.py
+src/chinvex/config.py
+src/chinvex/embed.py
+src/chinvex/ingest.py
+src/chinvex/search.py
+src/chinvex/storage.py
+src/chinvex/util.py
+src/chinvex/vectors.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/chinvex_mcp/__init__.py">
+__all__ = ["__version__"]
+__version__ = "0.1.0"
+</file>
+
+<file path="src/chinvex/__init__.py">
+__all__ = ["__version__"]
+__version__ = "0.1.0"
+</file>
+
+<file path="src/chinvex/chunking.py">
+MAX_CHARS = 3000
+REPO_OVERLAP = 300
+⋮----
+@dataclass(frozen=True)
+class Chunk
+⋮----
+text: str
+ordinal: int
+char_start: int | None = None
+char_end: int | None = None
+msg_start: int | None = None
+msg_end: int | None = None
+roles_present: list[str] | None = None
+⋮----
+def chunk_repo(text: str) -> list[Chunk]
+⋮----
+chunks: list[Chunk] = []
+step = MAX_CHARS - REPO_OVERLAP
+start = 0
+ordinal = 0
+⋮----
+end = min(start + MAX_CHARS, len(text))
+chunk_text = text[start:end]
+⋮----
+def build_chat_text(messages: list[dict]) -> list[str]
+⋮----
+lines: list[str] = []
+⋮----
+role = str(msg.get("role", "unknown"))
+text = str(msg.get("text", "")).strip()
+⋮----
+def chunk_chat(messages: list[dict]) -> list[Chunk]
+⋮----
+lines = build_chat_text(messages)
+⋮----
+current: list[str] = []
+msg_start = 0
+⋮----
+roles_present: set[str] = set()
+⋮----
+def flush(msg_end: int) -> None
+⋮----
+chunk_text = "\n".join(current)
+⋮----
+current = []
+roles_present = set()
+⋮----
+msg = messages[i]
+⋮----
+pending = current + [line]
+⋮----
+msg_start = i
+⋮----
+msg_start = i + 1
+</file>
+
+<file path="src/chinvex/config.py">
+@dataclass(frozen=True)
+class SourceConfig
+⋮----
+type: str
+path: Path
+name: str | None = None
+project: str | None = None
+⋮----
+@dataclass(frozen=True)
+class AppConfig
+⋮----
+index_dir: Path
+ollama_host: str
+embedding_model: str
+sources: tuple[SourceConfig, ...]
+⋮----
+class ConfigError(ValueError)
+⋮----
+def _expect_str(data: dict[str, Any], key: str, *, required: bool = True) -> str | None
+⋮----
+value = data.get(key)
+⋮----
+def load_config(path: Path) -> AppConfig
+⋮----
+raw = json.loads(path.read_text(encoding="utf-8"))
+⋮----
+index_dir = _expect_str(raw, "index_dir")
+ollama_host = _expect_str(raw, "ollama_host")
+embedding_model = _expect_str(raw, "embedding_model")
+sources_raw = raw.get("sources")
+⋮----
+sources: list[SourceConfig] = []
+⋮----
+src_type = _expect_str(entry, "type")
+⋮----
+path_str = _expect_str(entry, "path")
+name = _expect_str(entry, "name", required=False)
+project = _expect_str(entry, "project", required=False)
+</file>
+
+<file path="src/chinvex/embed.py">
+class OllamaEmbedder
+⋮----
+def __init__(self, host: str, model: str) -> None
+⋮----
+def embed(self, texts: list[str]) -> list[list[float]]
+⋮----
+def _embed_batch(self, texts: list[str]) -> list[list[float]]
+⋮----
+url = f"{self.host}/api/embed"
+payload = {"model": self.model, "input": texts}
+resp = requests.post(url, json=payload, timeout=60)
+⋮----
+data = resp.json()
+embeddings = data.get("embeddings")
+⋮----
+def _embed_single(self, text: str) -> list[float]
+⋮----
+url = f"{self.host}/api/embeddings"
+payload = {"model": self.model, "prompt": text}
+⋮----
+embedding = data.get("embedding")
+⋮----
+def _raise_ollama_error(self, resp: requests.Response) -> None
+⋮----
+body = resp.text.strip()
+⋮----
+def _is_context_length_error(self, resp: requests.Response) -> bool
+⋮----
+body = resp.text.lower()
+⋮----
+def _embed_split(self, text: str) -> list[float]
+⋮----
+emb_left = self._embed_single(left)
+emb_right = self._embed_single(right)
+⋮----
+def _split_text(self, text: str) -> tuple[str, str]
+⋮----
+mid = len(text) // 2
+max_search = min(500, mid)
+split_at = None
+⋮----
+left_idx = mid - offset
+right_idx = mid + offset
+⋮----
+split_at = left_idx
+⋮----
+split_at = right_idx
+⋮----
+split_at = mid
+⋮----
+def _average_vectors(self, a: list[float], b: list[float]) -> list[float]
+</file>
+
+<file path="src/chinvex/util.py">
+SKIP_DIRS = {
+⋮----
+ALLOWED_EXTS = {".ts", ".tsx", ".js", ".jsx", ".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml"}
+⋮----
+def sha256_text(text: str) -> str
+⋮----
+def normalized_path(path: Path) -> str
+⋮----
+def iso_from_mtime(path: Path) -> str
+⋮----
+ts = path.stat().st_mtime
+⋮----
+def read_text_utf8(path: Path) -> str | None
+⋮----
+def walk_files(root: Path) -> Iterable[Path]
+⋮----
+path = Path(dirpath) / filename
+⋮----
+def dump_json(data: object) -> str
+⋮----
+def now_iso() -> str
+⋮----
+def in_venv() -> bool
+⋮----
+def dataclass_to_json(obj: object) -> str
+</file>
+
+<file path="src/chinvex/vectors.py">
+class VectorStore
+⋮----
+def __init__(self, persist_dir: Path, collection_name: str = "chinvex_chunks") -> None
+⋮----
+def upsert(self, ids: list[str], documents: list[str], metadatas: list[dict], embeddings: list[list[float]]) -> None
+⋮----
+def delete(self, ids: Iterable[str]) -> None
+⋮----
+ids_list = list(ids)
+⋮----
+def query(self, query_embeddings: list[list[float]], n_results: int, where: dict | None = None) -> dict
+⋮----
+def count(self) -> int
+</file>
+
+<file path="src/chinvex_mcp/server.py">
+except ImportError:  # pragma: no cover - fallback if MCPError name differs
+⋮----
+class MCPError(RuntimeError)
+⋮----
+class ToolError(RuntimeError)
+⋮----
+@dataclass
+class IndexHandle
+⋮----
+config_path: Path
+config: AppConfig
+storage: Storage
+vectors: VectorStore
+⋮----
+@dataclass
+class ServerState
+⋮----
+handle: IndexHandle
+default_k: int
+default_min_score: float
+ollama_host_override: str | None
+⋮----
+_INDEX_CACHE: dict[str, IndexHandle] = {}
+⋮----
+def main() -> None
+⋮----
+parser = argparse.ArgumentParser(description="chinvex MCP server (stdio)")
+⋮----
+args = parser.parse_args()
+⋮----
+state = build_state(
+⋮----
+mcp = FastMCP("chinvex")
+⋮----
+@mcp.tool(name="chinvex_get_chunk")
+    def chinvex_get_chunk(chunk_id: str) -> dict
+⋮----
+handle = _get_index_handle(config_path)
+⋮----
+source_value = source or "all"
+⋮----
+effective_k = k if k is not None else state.default_k
+effective_min = min_score if min_score is not None else state.default_min_score
+⋮----
+embedder = OllamaEmbedder(
+⋮----
+scored = search_chunks(
+⋮----
+def handle_get_chunk(state: ServerState, *, chunk_id: str) -> dict
+⋮----
+row = state.handle.storage.conn.execute(
+⋮----
+meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
+doc = state.handle.storage.get_document(row["doc_id"])
+path = meta.get("path") or (doc["source_uri"] if doc else "")
+title = _title_from_row(row, path)
+⋮----
+def format_result(storage: Storage, item: ScoredChunk, *, include_text: bool) -> dict
+⋮----
+row = item.row
+⋮----
+doc = storage.get_document(row["doc_id"])
+⋮----
+result = {
+⋮----
+def _title_from_row(row: Any, path: str) -> str
+⋮----
+def _get_index_handle(config_path: Path) -> IndexHandle
+⋮----
+key = str(config_path.resolve())
+⋮----
+config = load_config(config_path)
+⋮----
+db_path = config.index_dir / "hybrid.db"
+chroma_dir = config.index_dir / "chroma"
+⋮----
+storage = Storage(db_path)
+⋮----
+vectors = VectorStore(chroma_dir)
+handle = IndexHandle(
+</file>
+
+<file path="src/chinvex/cli.py">
+app = typer.Typer(add_completion=False, help="chinvex: hybrid retrieval index CLI")
+⋮----
+def _load_config(config_path: Path)
+⋮----
+cfg = _load_config(config)
+stats = ingest(cfg, ollama_host_override=ollama_host)
+⋮----
+results = search(
+</file>
+
+<file path="src/chinvex/ingest.py">
+def ingest(config: AppConfig, *, ollama_host_override: str | None = None) -> dict
+⋮----
+index_dir = config.index_dir
+⋮----
+db_path = index_dir / "hybrid.db"
+chroma_dir = index_dir / "chroma"
+⋮----
+lock_path = index_dir / "hybrid.db.lock"
+⋮----
+storage = Storage(db_path)
+⋮----
+ollama_host = ollama_host_override or config.ollama_host
+embedder = OllamaEmbedder(ollama_host, config.embedding_model)
+vectors = VectorStore(chroma_dir)
+⋮----
+stats = {"documents": 0, "chunks": 0, "skipped": 0}
+started_at = now_iso()
+run_id = sha256_text(started_at)
+⋮----
+def _ingest_repo(source: SourceConfig, storage: Storage, embedder: OllamaEmbedder, vectors: VectorStore, stats: dict) -> None
+⋮----
+text = read_text_utf8(path)
+⋮----
+doc_id = sha256_text(f"repo|{normalized_path(path)}")
+updated_at = iso_from_mtime(path)
+content_hash = sha256_text(text)
+existing = storage.get_document(doc_id)
+⋮----
+chunk_ids = storage.delete_chunks_for_doc(doc_id) if existing else []
+⋮----
+meta = {
+⋮----
+chunks = chunk_repo(text)
+chunk_rows = []
+fts_rows = []
+ids: list[str] = []
+docs: list[str] = []
+metas: list[dict] = []
+⋮----
+chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+cmeta = {
+⋮----
+embeddings = embedder.embed(docs)
+⋮----
+def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedder, vectors: VectorStore, stats: dict) -> None
+⋮----
+raw = json.loads(path.read_text(encoding="utf-8"))
+⋮----
+messages = raw.get("messages") or []
+⋮----
+conversation_id = str(raw.get("conversation_id", path.stem))
+title = str(raw.get("title", ""))
+project = str(raw.get("project", source.project or ""))
+exported_at = str(raw.get("exported_at") or iso_from_mtime(path))
+doc_id = conversation_id
+⋮----
+lines = []
+⋮----
+role = str(msg.get("role", "unknown"))
+text = str(msg.get("text", "")).strip()
+⋮----
+canonical_text = "\n".join(lines)
+content_hash = sha256_text(canonical_text)
+⋮----
+chunks = chunk_chat(messages)
+</file>
+
+<file path="src/chinvex/search.py">
+@dataclass
+class SearchResult
+⋮----
+chunk_id: str
+score: float
+source_type: str
+title: str
+citation: str
+snippet: str
+⋮----
+@dataclass
+class ScoredChunk
+⋮----
+row: Any
+⋮----
+db_path = config.index_dir / "hybrid.db"
+chroma_dir = config.index_dir / "chroma"
+storage = Storage(db_path)
+⋮----
+filters = {}
+⋮----
+ollama_host = ollama_host_override or config.ollama_host
+embedder = OllamaEmbedder(ollama_host, config.embedding_model)
+vectors = VectorStore(chroma_dir)
+scored = search_chunks(
+results = [
+⋮----
+lex_rows = storage.search_fts(query, limit=30, filters=filters)
+lex_scores = _normalize_lex(lex_rows)
+⋮----
+where = {}
+⋮----
+query_embedding = embedder.embed([query])
+vec_result = vectors.query(query_embedding, n_results=30, where=where)
+vec_scores = _normalize_vec(vec_result)
+⋮----
+merged: dict[str, dict[str, Any]] = {}
+⋮----
+recency_map = _recency_norm(lex_rows)
+results: list[ScoredChunk] = []
+⋮----
+row = data.get("row")
+⋮----
+row = _fetch_chunk(storage, chunk_id)
+⋮----
+lex = data.get("lex", 0.0)
+vec = data.get("vec", 0.0)
+score = 0.55 * lex + 0.45 * vec
+⋮----
+meta = json.loads(row["meta_json"]) if row["meta_json"] else {}
+⋮----
+score = min(1.0, max(0.0, score))
+⋮----
+def _normalize_lex(rows) -> dict[str, float]
+⋮----
+ranks = [row["rank"] for row in rows]
+min_rank = min(ranks)
+max_rank = max(ranks) if max(ranks) != min_rank else min_rank + 1.0
+scores = {}
+⋮----
+norm = (row["rank"] - min_rank) / (max_rank - min_rank)
+⋮----
+def _normalize_vec(result: dict) -> dict[str, float]
+⋮----
+ids = result.get("ids", [[]])[0]
+distances = result.get("distances", [[]])[0]
+scores: dict[str, float] = {}
+⋮----
+score = 1.0 / (1.0 + float(dist))
+⋮----
+def _recency_norm(rows) -> dict[str, float]
+⋮----
+dates = []
+⋮----
+updated = row["updated_at"]
+⋮----
+min_dt = min(dates)
+max_dt = max(dates)
+span = (max_dt - min_dt).total_seconds() or 1.0
+⋮----
+dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+⋮----
+def _fetch_chunk(storage: Storage, chunk_id: str)
+⋮----
+cur = storage.conn.execute("SELECT * FROM chunks WHERE chunk_id = ?", (chunk_id,))
+⋮----
+def _title_from_row(row) -> str
+⋮----
+def _citation_from_row(row) -> str
+⋮----
+path = meta.get("path", "")
+ordinal = meta.get("ordinal", 0)
+start = meta.get("char_start", 0)
+end = meta.get("char_end", 0)
+⋮----
+conversation_id = meta.get("doc_id") or row["doc_id"]
+title = meta.get("title", "")
+msg_start = meta.get("msg_start", 0)
+msg_end = meta.get("msg_end", 0)
+⋮----
+def make_snippet(text: str, limit: int = 200) -> str
+⋮----
+snippet = " ".join(text.split())
+</file>
+
+<file path="src/chinvex/storage.py">
+_CONN: sqlite3.Connection | None = None
+_CONN_PATH: Path | None = None
+⋮----
+class Storage
+⋮----
+def __init__(self, db_path: Path) -> None
+⋮----
+def close(self) -> None
+⋮----
+# Single shared connection per process; no-op on close.
+⋮----
+@classmethod
+    def _get_connection(cls, db_path: Path) -> sqlite3.Connection
+⋮----
+_CONN = cls._connect(db_path)
+_CONN_PATH = db_path
+⋮----
+@staticmethod
+    def _connect(db_path: Path) -> sqlite3.Connection
+⋮----
+conn = sqlite3.connect(db_path)
+⋮----
+def ensure_schema(self) -> None
+⋮----
+def _check_fts5(self) -> None
+⋮----
+def get_document(self, doc_id: str) -> sqlite3.Row | None
+⋮----
+cur = self._execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,))
+⋮----
+def delete_chunks_for_doc(self, doc_id: str) -> list[str]
+⋮----
+cur = self._execute("SELECT chunk_id FROM chunks WHERE doc_id = ?", (doc_id,))
+chunk_ids = [row["chunk_id"] for row in cur.fetchall()]
+⋮----
+def upsert_chunks(self, rows: Iterable[tuple]) -> None
+⋮----
+def upsert_fts(self, rows: Iterable[tuple]) -> None
+⋮----
+def search_fts(self, query: str, limit: int = 30, filters: dict | None = None) -> list[sqlite3.Row]
+⋮----
+filters = filters or {}
+clauses = []
+params: list = []
+⋮----
+sql = f"""
+params = [query] + params + [limit]
+cur = self._execute(sql, params)
+⋮----
+def record_run(self, run_id: str, started_at: str, stats_json: str) -> None
+⋮----
+finished = now_iso()
+⋮----
+def _execute(self, sql: str, params: tuple | list | None = None) -> sqlite3.Cursor
+⋮----
+def _executemany(self, sql: str, rows: Iterable[tuple]) -> None
+⋮----
+def _retry_once(self, sql: str, params: tuple | list | Iterable[tuple] | None, *, many: bool = False)
+⋮----
+_CONN = None
+_CONN_PATH = None
+⋮----
+_CONN = self.conn
+_CONN_PATH = self.db_path
+⋮----
+self.conn.executemany(sql, params)  # type: ignore[arg-type]
+</file>
+
+<file path="README.md">
+# chinvex - chunked vector indexer
+
+Hybrid retrieval index CLI (SQLite FTS5 + Chroma) powered by Ollama embeddings.
+
+## Prereqs
+- Python 3.12
+- Ollama installed and running
+- `ollama pull mxbai-embed-large`
+
+## Install (venv required)
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\activate
+pip install -e .
+```
+
+## Config
+Create a JSON config file:
+```json
+{
+  "index_dir": "P:\\ai_memory\\indexes\\streamside",
+  "ollama_host": "http://127.0.0.1:11434",
+  "embedding_model": "mxbai-embed-large",
+  "sources": [
+    {"type": "repo", "name": "streamside", "path": "C:\\Code\\streamside"},
+    {"type": "chat", "project": "Twitch", "path": "P:\\ai_memory\\projects\\Twitch\\chats"}
+  ]
+}
+```
+
+## Run
+```powershell
+chinvex ingest --config .\config.json
+chinvex search --config .\config.json "your query"
+```
+
+## MCP Server
+Run the local MCP server over stdio (defaults to `.\config.json`):
+```powershell
+chinvex-mcp --config .\config.json
+```
+
+Optional overrides:
+```powershell
+chinvex-mcp --config .\config.json --ollama-host http://skynet:11434 --k 8 --min-score 0.30
+```
+
+### Codex config.toml
+```
+[mcp_servers.chinvex]
+command = "[path_to_chinvex]\\.venv\\Scripts\\chinvex-mcp.exe"
+args = ["--config", "[path_to_chinvex]\\config.json"]
+cwd = "[path_to_chinvex]"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+```
+
+### Cursor / Claude Desktop MCP config
+```json
+{
+  "mcpServers": {
+    "chinvex": {
+      "command": "chinvex-mcp",
+      "args": ["--config", "C:\\\\path\\\\to\\\\config.json"]
+    }
+  }
+}
+```
+
+### Example tool calls
+`chinvex_search`:
+```json
+{
+  "query": "search text",
+  "source": "repo",
+  "k": 5,
+  "min_score": 0.35,
+  "include_text": false
+}
+```
+
+Example output (truncated):
+```json
+[
+  {
+    "score": 0.72,
+    "source_type": "repo",
+    "title": "example.py",
+    "path": "C:\\\\Code\\\\streamside\\\\example.py",
+    "chunk_id": "abc123",
+    "doc_id": "def456",
+    "ordinal": 0,
+    "snippet": "def main(): ...",
+    "meta": {"repo": "streamside", "char_start": 0, "char_end": 3000}
+  }
+]
+```
+
+`chinvex_get_chunk`:
+```json
+{
+  "chunk_id": "abc123"
+}
+```
+
+## Troubleshooting
+- FTS5 missing: install a Python build with SQLite FTS5 enabled.
+- Ollama connection/model missing: ensure Ollama is running and `ollama pull mxbai-embed-large` completed.
+- Windows path issues: use escaped backslashes in JSON or forward slashes.
+- Concurrency: only one ingest should run at a time (a lock file `hybrid.db.lock` is used). If you see lock errors, wait for the other ingest to finish.
+
+## Smoke Test
+```powershell
+chinvex ingest --config path\to\config.json
+chinvex search --config path\to\config.json "known token"
+```
+Expected: ingest creates `<index_dir>\hybrid.db` and `<index_dir>\chroma`, and search returns results.
+</file>
+
+</files>

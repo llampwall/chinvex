@@ -1,0 +1,36 @@
+# Secrets & env
+.env
+.env.*
+**/*.pem
+**/*.key
+**/*secrets*
+**/*credentials*
+**/*.p12
+
+# Big / noisy
+node_modules/
+/docs/plans/
+dist/
+build/
+.out/
+.next/
+coverage/
+.cache/
+__pycache__/
+*.log
+
+# Media / binaries / exports
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.mp4
+**/*.mov
+**/*.zip
+**/*.svg
+
+# Data dumps
+**/*.sqlite
+**/*.db
+**/*.csv
+**/*.parquet
