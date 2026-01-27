@@ -76,3 +76,60 @@ def test_ingest_context_returns_result(tmp_path: Path, monkeypatch):
     assert result.context == "TestContext"
     assert isinstance(result.new_chunk_ids, list)
     assert isinstance(result.stats, dict)
+
+
+def test_ingest_calls_post_hook(tmp_path: Path, monkeypatch):
+    """Test that ingest calls post-ingest hook."""
+    # Mock OllamaEmbedder
+    class FakeEmbedder:
+        def __init__(self, host: str, model: str, fallback_host: str | None = None):
+            self.model = model
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    monkeypatch.setattr("chinvex.ingest.OllamaEmbedder", FakeEmbedder)
+
+    # Track hook calls
+    hook_called = []
+
+    def mock_hook(context, result):
+        hook_called.append((context, result))
+
+    monkeypatch.setattr('chinvex.ingest.post_ingest_hook', mock_hook)
+
+    # Create minimal test context
+    test_repo = tmp_path / "repo"
+    test_repo.mkdir()
+    (test_repo / "test.txt").write_text("test content")
+
+    db_path = tmp_path / "hybrid.db"
+    chroma_dir = tmp_path / "chroma"
+
+    ctx_dict = {
+        "schema_version": 1,
+        "name": "TestContext",
+        "aliases": [],
+        "includes": {
+            "repos": [test_repo],
+            "chat_roots": [],
+            "codex_session_roots": [],
+            "note_roots": []
+        },
+        "index": {
+            "sqlite_path": db_path,
+            "chroma_dir": chroma_dir
+        },
+        "weights": {"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
+        "ollama": {"base_url": "http://127.0.0.1:11434", "embed_model": "mxbai-embed-large"},
+        "created_at": "2026-01-26T00:00:00Z",
+        "updated_at": "2026-01-26T00:00:00Z"
+    }
+
+    from chinvex.context import ContextConfig
+    ctx = ContextConfig.from_dict(ctx_dict)
+
+    result = ingest_context(ctx)
+
+    assert len(hook_called) == 1
+    assert hook_called[0][0] == ctx
+    assert hook_called[0][1] == result

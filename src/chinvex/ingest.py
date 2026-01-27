@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from portalocker import Lock, LockException
 
@@ -14,6 +17,7 @@ from .chunking import chunk_chat, chunk_conversation, chunk_repo
 from .config import AppConfig, SourceConfig
 from .context import ContextConfig
 from .embed import OllamaEmbedder
+from .hooks import post_ingest_hook
 from .storage import Storage
 from .util import dump_json, iso_from_mtime, normalized_path, now_iso, read_text_utf8, sha256_text, walk_files
 from .vectors import VectorStore
@@ -349,7 +353,7 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             storage.record_run(run_id, now_iso(), dump_json(stats))
             storage.close()
 
-            return IngestRunResult(
+            result = IngestRunResult(
                 run_id=run_id,
                 context=ctx.name,
                 started_at=started_at,
@@ -361,6 +365,15 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                 error_doc_ids=error_doc_ids,
                 stats=stats
             )
+
+            # Call post-ingest hook
+            try:
+                post_ingest_hook(ctx, result)
+            except Exception as e:
+                log.error(f"Post-ingest hook failed: {e}")
+                # Don't fail ingest on hook failure
+
+            return result
     except LockException as exc:
         raise RuntimeError(
             "Ingest lock is held by another process. Only one ingest can run at a time."
