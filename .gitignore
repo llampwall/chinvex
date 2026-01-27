@@ -27,6 +27,9 @@ chroma/
 *.local.toml
 *.env
 
+# Worktrees
+.worktrees/
+
 # OS
 Thumbs.db
 Desktop.ini
