@@ -1,13 +1,14 @@
 from pathlib import Path
 import json
 from chinvex_mcp.server import handle_chinvex_answer
-from chinvex.context import ContextConfig, ContextIncludes, ContextIndex
+from chinvex.context import ContextConfig, ContextIncludes, ContextIndex, OllamaConfig
 
 
 class FakeEmbedder:
-    def __init__(self, host: str, model: str):
+    def __init__(self, host: str, model: str, fallback_host: str | None = None):
         self.host = host
         self.model = model
+        self.fallback_host = fallback_host
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.1, 0.2, 0.3] for _ in texts]
@@ -25,6 +26,7 @@ def test_chinvex_answer_returns_evidence_pack(tmp_path: Path, monkeypatch) -> No
             chroma_dir=tmp_path / "chroma"
         ),
         weights={"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
+        ollama=OllamaConfig(base_url="http://localhost:11434", embed_model="mxbai-embed-large"),
         created_at="2026-01-26T00:00:00Z",
         updated_at="2026-01-26T00:00:00Z"
     )

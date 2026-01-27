@@ -16,9 +16,10 @@ def test_ingest_with_context_name(tmp_path: Path, monkeypatch) -> None:
 
     # Mock ollama
     class FakeEmbedder:
-        def __init__(self, host: str, model: str):
+        def __init__(self, host: str, model: str, fallback_host: str | None = None):
             self.host = host
             self.model = model
+            self.fallback_host = fallback_host
 
         def embed(self, texts: list[str]) -> list[list[float]]:
             return [[0.1, 0.2, 0.3] for _ in texts]

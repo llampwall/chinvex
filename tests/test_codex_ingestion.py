@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 from chinvex.ingest import _ingest_codex_sessions_from_context
-from chinvex.context import ContextConfig, ContextIncludes, ContextIndex
+from chinvex.context import ContextConfig, ContextIncludes, ContextIndex, OllamaConfig
 from chinvex.storage import Storage
 from chinvex.vectors import VectorStore
 
@@ -47,6 +47,7 @@ def test_ingest_codex_sessions_with_fingerprinting(tmp_path: Path, monkeypatch) 
             chroma_dir=tmp_path / "chroma"
         ),
         weights={"codex_session": 0.9, "repo": 1.0, "chat": 0.8, "note": 0.7},
+        ollama=OllamaConfig(base_url="http://localhost:11434", embed_model="mxbai-embed-large"),
         created_at="2026-01-26T00:00:00Z",
         updated_at="2026-01-26T00:00:00Z"
     )
