@@ -72,7 +72,19 @@ class ContextConfig:
             note_roots=[Path(p) for p in includes_data.get("note_roots", [])],
         )
 
-        index_data = data["index"]
+        # Handle missing index field for old contexts
+        index_data = data.get("index")
+        if index_data is None:
+            import os
+            # Generate default index paths based on context name
+            context_name = data["name"]
+            indexes_root = Path(os.getenv("CHINVEX_INDEXES_ROOT", "P:/ai_memory/indexes"))
+            index_root = indexes_root / context_name
+            index_data = {
+                "sqlite_path": str(index_root / "hybrid.db"),
+                "chroma_dir": str(index_root / "chroma")
+            }
+
         index = ContextIndex(
             sqlite_path=Path(index_data["sqlite_path"]),
             chroma_dir=Path(index_data["chroma_dir"]),
@@ -105,16 +117,20 @@ class ContextConfig:
 
         state_llm = data.get("state_llm")
 
+        # Handle missing timestamp fields for old contexts
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
         return cls(
             schema_version=data["schema_version"],
             name=data["name"],
             aliases=data.get("aliases", []),
             includes=includes,
             index=index,
-            weights=data["weights"],
+            weights=data.get("weights", {"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7}),
             ollama=ollama,
-            created_at=data["created_at"],
-            updated_at=data["updated_at"],
+            created_at=data.get("created_at", now),
+            updated_at=data.get("updated_at", now),
             codex_appserver=codex_appserver,
             ranking=ranking,
             state_llm=state_llm,
