@@ -68,7 +68,7 @@ async def healthz():
         if contexts:
             test_context = load_context(contexts[0].name, contexts_root)
             # Try to access vector store
-            from chinvex.vector_store import VectorStore
+            from chinvex.vectors import VectorStore
             vec_store = VectorStore(test_context.index.chroma_path)
             # Try to get collection metadata
             vec_store.collection.count()

@@ -130,7 +130,7 @@ async def startup_warmup():
         from chinvex.context_cli import get_contexts_root, list_contexts
         from chinvex.context import load_context
         from chinvex.storage import Storage
-        from chinvex.vector_store import VectorStore
+        from chinvex.vectors import VectorStore
 
         # Load context registry
         contexts_root = get_contexts_root()
