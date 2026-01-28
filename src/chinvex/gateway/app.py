@@ -144,7 +144,7 @@ async def startup_warmup():
             storage = Storage(context.index.sqlite_path)
             storage._execute("SELECT 1")
             # Touch Chroma
-            vec_store = VectorStore(context.index.chroma_path)
+            vec_store = VectorStore(context.index.chroma_dir)
             vec_store.collection.count()
             logger.info(f"Warmed up context: {contexts[0].name}")
 
