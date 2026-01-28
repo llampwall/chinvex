@@ -66,8 +66,9 @@ def send_webhook(url: str, payload: dict, secret: str | None = None, retry_count
     # Add signature if secret provided
     headers = {"Content-Type": "application/json"}
     if secret:
-        # Signature will be implemented in Task 23
-        pass
+        from .webhook_signature import generate_signature
+        signature = generate_signature(payload, secret)
+        headers["X-Chinvex-Signature"] = signature
 
     # Retry loop
     for attempt in range(retry_count + 1):
