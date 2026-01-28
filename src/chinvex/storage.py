@@ -8,7 +8,7 @@ from typing import Iterable
 
 from .util import now_iso
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 _CONN: sqlite3.Connection | None = None
 _CONN_PATH: Path | None = None
@@ -43,6 +43,56 @@ class Storage:
         conn.execute("PRAGMA busy_timeout=5000;")
         return conn
 
+    def _run_migrations(self, from_version: int) -> None:
+        """Run schema migrations from stored version to current version."""
+        if from_version < 2:
+            self._migrate_v1_to_v2()
+        if from_version < 3:
+            self._migrate_v2_to_v3()
+
+    def _migrate_v1_to_v2(self) -> None:
+        """
+        Migrate schema from v1 to v2.
+
+        Adds chunk_key column to chunks table for rechunk optimization.
+        """
+        # Check if migration already applied
+        cursor = self.conn.execute("PRAGMA table_info(chunks)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "chunk_key" in columns:
+            return  # Already migrated
+
+        # Add chunk_key column
+        self._execute("ALTER TABLE chunks ADD COLUMN chunk_key TEXT")
+
+        # Create index
+        self._execute("CREATE INDEX IF NOT EXISTS idx_chunks_chunk_key ON chunks(chunk_key)")
+
+        self.conn.commit()
+        print("Migrated schema to v2: added chunk_key column")
+
+    def _migrate_v2_to_v3(self) -> None:
+        """
+        Migrate schema from v2 to v3.
+
+        Adds archived and archived_at columns to documents table.
+        """
+        # Check if migration already applied
+        cursor = self.conn.execute("PRAGMA table_info(documents)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "archived" in columns:
+            return  # Already migrated
+
+        # Add archived columns
+        self._execute("ALTER TABLE documents ADD COLUMN archived INTEGER DEFAULT 0")
+        self._execute("ALTER TABLE documents ADD COLUMN archived_at TEXT")
+
+        # Create index
+        self._execute("CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(archived)")
+
+        self.conn.commit()
+        print("Migrated schema to v3: added archive tier support")
+
     def ensure_schema(self) -> None:
         self._check_fts5()
 
@@ -56,7 +106,7 @@ class Storage:
             """
         )
 
-        # Check schema version
+        # Check schema version and run migrations
         cur = self._execute("SELECT value FROM meta WHERE key = 'schema_version'")
         row = cur.fetchone()
         if row is None:
@@ -67,11 +117,19 @@ class Storage:
             )
         else:
             stored_version = int(row["value"])
-            if stored_version != SCHEMA_VERSION:
+            if stored_version < SCHEMA_VERSION:
+                # Run migrations
+                self._run_migrations(stored_version)
+                # Update schema version
+                self._execute(
+                    "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+                    (str(SCHEMA_VERSION),)
+                )
+            elif stored_version > SCHEMA_VERSION:
                 raise RuntimeError(
                     f"schema version mismatch: database has version {stored_version}, "
                     f"but code expects version {SCHEMA_VERSION}. "
-                    f"Delete index folder or run migration script."
+                    f"Update chinvex to a newer version."
                 )
 
         # Continue with existing table creation
@@ -86,9 +144,15 @@ class Storage:
               title TEXT,
               updated_at TEXT,
               content_hash TEXT,
-              meta_json TEXT
+              meta_json TEXT,
+              archived INTEGER DEFAULT 0,
+              archived_at TEXT
             )
             """
+        )
+        # Create archived index for new databases
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(archived)"
         )
         self._execute(
             """
@@ -101,9 +165,14 @@ class Storage:
               ordinal INTEGER NOT NULL,
               text TEXT NOT NULL,
               updated_at TEXT,
-              meta_json TEXT
+              meta_json TEXT,
+              chunk_key TEXT
             )
             """
+        )
+        # Create chunk_key index for new databases
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_key ON chunks(chunk_key)"
         )
         self._execute(
             """
@@ -182,6 +251,18 @@ class Storage:
         )
         return cur.fetchall()
 
+    def lookup_chunk_by_key(self, chunk_key: str) -> sqlite3.Row | None:
+        """
+        Lookup existing chunk by chunk_key for embedding reuse.
+
+        Returns chunk row if found, None otherwise.
+        """
+        cur = self._execute(
+            "SELECT chunk_id, text FROM chunks WHERE chunk_key = ? LIMIT 1",
+            (chunk_key,)
+        )
+        return cur.fetchone()
+
     def upsert_document(
         self,
         *,
@@ -227,8 +308,8 @@ class Storage:
     def upsert_chunks(self, rows: Iterable[tuple]) -> None:
         self._executemany(
             """
-            INSERT INTO chunks(chunk_id, doc_id, source_type, project, repo, ordinal, text, updated_at, meta_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chunks(chunk_id, doc_id, source_type, project, repo, ordinal, text, updated_at, meta_json, chunk_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(chunk_id) DO UPDATE SET
               doc_id=excluded.doc_id,
               source_type=excluded.source_type,
@@ -237,7 +318,8 @@ class Storage:
               ordinal=excluded.ordinal,
               text=excluded.text,
               updated_at=excluded.updated_at,
-              meta_json=excluded.meta_json
+              meta_json=excluded.meta_json,
+              chunk_key=excluded.chunk_key
             """,
             rows,
         )
