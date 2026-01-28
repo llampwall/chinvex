@@ -77,7 +77,10 @@ def ingest_cmd(
 @app.command("search")
 def search_cmd(
     query: str = typer.Argument(..., help="Search query"),
-    context: str | None = typer.Option(None, "--context", "-c", help="Context name to search"),
+    context: str | None = typer.Option(None, "--context", "-c", help="Context name to search (deprecated for multi-context)"),
+    contexts: str | None = typer.Option(None, "--contexts", help="Comma-separated context names"),
+    all_contexts: bool = typer.Option(False, "--all", help="Search all contexts"),
+    exclude: str | None = typer.Option(None, "--exclude", help="Comma-separated contexts to exclude (with --all)"),
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     k: int = typer.Option(8, "--k", help="Top K results"),
     min_score: float = typer.Option(0.35, "--min-score", help="Minimum score threshold"),
@@ -90,14 +93,68 @@ def search_cmd(
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
 
-    if not context and not config:
-        typer.secho("Error: Must provide either --context or --config", fg=typer.colors.RED)
-        raise typer.Exit(code=2)
-
     if source not in {"all", "repo", "chat", "codex_session"}:
         raise typer.BadParameter("source must be one of: all, repo, chat, codex_session")
 
-    if context:
+    # Determine search mode: multi-context, single-context, or legacy config
+    if all_contexts or contexts:
+        # Multi-context search
+        from .context import list_contexts as list_contexts_func
+        from .search import search_multi_context
+
+        contexts_root = get_contexts_root()
+
+        if all_contexts:
+            ctx_list = "all"
+            if exclude:
+                # Filter out excluded contexts
+                all_ctx = [c.name for c in list_contexts_func(contexts_root)]
+                excluded = [x.strip() for x in exclude.split(",")]
+                ctx_list = [c for c in all_ctx if c not in excluded]
+        elif contexts:
+            ctx_list = [x.strip() for x in contexts.split(",")]
+        else:
+            ctx_list = "all"
+
+        # Note: project/repo filters not supported in multi-context mode
+        if project or repo:
+            typer.secho("Warning: --project and --repo filters not supported in multi-context search", fg=typer.colors.YELLOW)
+
+        results = search_multi_context(
+            contexts=ctx_list,
+            query=query,
+            k=k,
+            min_score=min_score,
+            source=source,
+            ollama_host=ollama_host,
+            recency_enabled=not no_recency,
+        )
+
+        if not results:
+            typer.echo("No results found.")
+            return
+
+        # Print results with context tags
+        typer.secho(f"\nSearched contexts: {ctx_list if isinstance(ctx_list, list) else 'all'}", fg=typer.colors.BLUE)
+        typer.secho(f"Found {len(results)} results\n", fg=typer.colors.GREEN)
+
+        # Score distribution stats
+        if results:
+            score_min = min(r.score for r in results)
+            score_max = max(r.score for r in results)
+            context_counts = {}
+            for r in results:
+                context_counts[r.context] = context_counts.get(r.context, 0) + 1
+            typer.echo(f"Score range: {score_min:.3f} - {score_max:.3f}")
+            typer.echo(f"Results by context: {context_counts}\n")
+
+        for i, result in enumerate(results, 1):
+            typer.secho(f"[{i}] [{result.context}] {result.title}", fg=typer.colors.CYAN, bold=True)
+            typer.echo(f"Score: {result.score:.3f} | Type: {result.source_type}")
+            typer.echo(f"Citation: {result.citation}")
+            typer.echo(f"Snippet: {result.snippet}\n")
+
+    elif context:
         # New context-based search
         from .context import load_context
         from .search import search_context
@@ -126,7 +183,7 @@ def search_cmd(
             typer.echo(f"Score: {result.score:.3f} | Type: {result.source_type}")
             typer.echo(f"Citation: {result.citation}")
             typer.echo(f"Snippet: {result.snippet}")
-    else:
+    elif config:
         # Old config-based search (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
 
@@ -150,6 +207,10 @@ def search_cmd(
             typer.echo(f"   {result.title}")
             typer.echo(f"   {result.citation}")
             typer.echo(f"   {result.snippet}")
+    else:
+        # No context flags provided
+        typer.secho("Error: Must specify --context, --contexts, --all, or --config", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
 
 
 @context_app.command("create")
