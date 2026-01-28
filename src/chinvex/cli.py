@@ -677,8 +677,26 @@ def archive(
             raise typer.Exit(1)
 
     elif action == "purge":
-        # Will implement in Task 21
-        print("Purge not yet implemented")
+        from chinvex.archive import purge_archived_documents
+
+        if not older_than:
+            print("Error: --older-than required for purge")
+            raise typer.Exit(1)
+
+        # Parse threshold
+        if older_than.endswith('d'):
+            days = int(older_than[:-1])
+        else:
+            raise ValueError(f"Invalid threshold format: {older_than}")
+
+        # Run purge
+        count = purge_archived_documents(storage, age_threshold_days=days, dry_run=not force)
+
+        if force:
+            print(f"Purged {count} docs permanently (older than {days}d)")
+        else:
+            print(f"Would purge {count} docs (dry-run)")
+            print("Use --force to execute")
 
     else:
         print(f"Unknown action: {action}")

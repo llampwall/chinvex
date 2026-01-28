@@ -119,3 +119,62 @@ def restore_document(storage: Storage, doc_id: str) -> bool:
     storage.conn.commit()
 
     return True
+
+
+def purge_archived_documents(storage: Storage, age_threshold_days: int, dry_run: bool = False) -> int:
+    """
+    Permanently delete archived documents older than threshold.
+
+    Only deletes documents that are ALREADY archived.
+    Returns count of documents purged.
+    """
+    from datetime import timezone
+
+    threshold_date_naive = datetime.utcnow() - timedelta(days=age_threshold_days)
+    threshold_date_aware = datetime.now(timezone.utc) - timedelta(days=age_threshold_days)
+
+    # Find candidates (archived docs older than threshold)
+    cursor = storage.conn.execute(
+        """
+        SELECT doc_id, archived_at
+        FROM documents
+        WHERE archived = 1 AND archived_at IS NOT NULL
+        """
+    )
+
+    candidates = []
+    for row in cursor.fetchall():
+        archived_at_str = row["archived_at"].rstrip("Z")
+        try:
+            archived_at = datetime.fromisoformat(archived_at_str)
+
+            # Use appropriate threshold based on whether archived_at is timezone-aware
+            threshold = threshold_date_aware if archived_at.tzinfo is not None else threshold_date_naive
+
+            if archived_at < threshold:
+                candidates.append(row["doc_id"])
+        except ValueError:
+            continue
+
+    if dry_run:
+        return len(candidates)
+
+    # Execute purge (delete from both documents and chunks)
+    if candidates:
+        placeholders = ",".join("?" * len(candidates))
+
+        # Delete chunks first (foreign key constraint)
+        storage._execute(
+            f"DELETE FROM chunks WHERE doc_id IN ({placeholders})",
+            candidates
+        )
+
+        # Delete documents
+        storage._execute(
+            f"DELETE FROM documents WHERE doc_id IN ({placeholders})",
+            candidates
+        )
+
+        storage.conn.commit()
+
+    return len(candidates)
