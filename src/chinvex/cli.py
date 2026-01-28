@@ -605,5 +605,61 @@ def gateway_status():
     typer.echo(f"Audit log: {config.audit_log_path}")
 
 
+@app.command()
+def archive(
+    action: str = typer.Argument(..., help="Action: run, list, restore, purge"),
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    older_than: str | None = typer.Option(None, "--older-than", help="Age threshold (e.g., 180d)"),
+    force: bool = typer.Option(False, "--force", help="Execute action (not dry-run)"),
+    doc_id: str | None = typer.Option(None, "--doc-id", help="Document ID for restore"),
+    limit: int = typer.Option(50, "--limit", help="Limit for list command"),
+):
+    """Manage archive tier."""
+    from chinvex.context import load_context
+    from chinvex.archive import archive_old_documents
+    from chinvex.storage import Storage
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+    db_path = ctx.index_dir / "hybrid.db"
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    if action == "run":
+        # Parse threshold
+        if older_than:
+            if older_than.endswith('d'):
+                days = int(older_than[:-1])
+            else:
+                raise ValueError(f"Invalid threshold format: {older_than}")
+        else:
+            days = 180  # Default
+
+        # Run archive
+        count = archive_old_documents(storage, age_threshold_days=days, dry_run=not force)
+
+        if force:
+            print(f"Archived {count} docs (older than {days}d)")
+        else:
+            print(f"Would archive {count} docs (dry-run)")
+            print("Use --force to execute")
+
+    elif action == "list":
+        # Will implement in Task 19
+        print("List not yet implemented")
+
+    elif action == "restore":
+        # Will implement in Task 19
+        print("Restore not yet implemented")
+
+    elif action == "purge":
+        # Will implement in Task 21
+        print("Purge not yet implemented")
+
+    else:
+        print(f"Unknown action: {action}")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
