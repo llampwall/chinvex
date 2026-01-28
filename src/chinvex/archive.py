@@ -29,7 +29,10 @@ def archive_old_documents(storage: Storage, age_threshold_days: int, dry_run: bo
 
     Returns count of documents archived (or would be archived in dry-run).
     """
-    threshold_date = datetime.utcnow() - timedelta(days=age_threshold_days)
+    from datetime import timezone
+
+    threshold_date_naive = datetime.utcnow() - timedelta(days=age_threshold_days)
+    threshold_date_aware = datetime.now(timezone.utc) - timedelta(days=age_threshold_days)
 
     # Find candidates
     cursor = storage.conn.execute(
@@ -44,8 +47,11 @@ def archive_old_documents(storage: Storage, age_threshold_days: int, dry_run: bo
     for row in cursor.fetchall():
         row_dict = dict(row)
         doc_age = get_doc_age_timestamp(row_dict)
-        if doc_age and doc_age < threshold_date:
-            candidates.append(row_dict["doc_id"])
+        if doc_age:
+            # Use appropriate threshold based on whether doc_age is timezone-aware
+            threshold = threshold_date_aware if doc_age.tzinfo is not None else threshold_date_naive
+            if doc_age < threshold:
+                candidates.append(row_dict["doc_id"])
 
     if dry_run:
         return len(candidates)

@@ -13,7 +13,7 @@ from portalocker import Lock, LockException
 from .adapters.cx_appserver.client import AppServerClient
 from .adapters.cx_appserver.normalize import normalize_to_conversation_doc
 from .adapters.cx_appserver.schemas import AppServerThread
-from .chunking import chunk_chat, chunk_conversation, chunk_repo
+from .chunking import chunk_chat, chunk_conversation, chunk_key, chunk_repo
 from .config import AppConfig, SourceConfig
 from .context import ContextConfig
 from .embed import OllamaEmbedder
@@ -72,6 +72,79 @@ def ingest(config: AppConfig, *, ollama_host_override: str | None = None) -> dic
         raise RuntimeError(
             "Ingest lock is held by another process. Only one ingest can run at a time."
         ) from exc
+
+
+def _conditional_embed(
+    texts: list[str],
+    storage: Storage,
+    embedder: OllamaEmbedder,
+    vectors: VectorStore,
+    stats: dict,
+    rechunk_only: bool,
+) -> list[list[float]]:
+    """
+    Generate embeddings with optional reuse optimization.
+
+    When rechunk_only=True:
+    - Compute chunk_key for each text
+    - Lookup existing chunks in SQLite
+    - Reuse embeddings from Chroma if text unchanged
+    - Only generate new embeddings for new/changed chunks
+    - Update stats['embeddings_reused'] and stats['embeddings_new']
+
+    When rechunk_only=False:
+    - Generate all embeddings normally
+    """
+    if not rechunk_only:
+        return embedder.embed(texts)
+
+    # Rechunk optimization path
+    embeddings: list[list[float]] = []
+    texts_to_embed: list[str] = []
+    text_to_embed_indices: list[int] = []
+
+    for i, text in enumerate(texts):
+        key = chunk_key(text)
+        existing = storage.lookup_chunk_by_key(key)
+
+        if existing and existing["text"] == text:
+            # Reuse existing embedding
+            chunk_id = existing["chunk_id"]
+            result = vectors.get_embeddings([chunk_id])
+            if result["ids"] and result["embeddings"]:
+                embeddings.append(result["embeddings"][0])
+                stats["embeddings_reused"] += 1
+            else:
+                # Fallback: chunk exists but no embedding found
+                texts_to_embed.append(text)
+                text_to_embed_indices.append(i)
+        else:
+            # Need new embedding
+            texts_to_embed.append(text)
+            text_to_embed_indices.append(i)
+
+    # Generate new embeddings in batch
+    if texts_to_embed:
+        new_embeddings = embedder.embed(texts_to_embed)
+        stats["embeddings_new"] += len(new_embeddings)
+
+        # Merge reused and new embeddings in correct order
+        final_embeddings: list[list[float] | None] = [None] * len(texts)
+
+        # Place reused embeddings
+        reused_idx = 0
+        for i in range(len(texts)):
+            if i not in text_to_embed_indices:
+                final_embeddings[i] = embeddings[reused_idx]
+                reused_idx += 1
+
+        # Place new embeddings
+        for idx, new_emb in zip(text_to_embed_indices, new_embeddings):
+            final_embeddings[idx] = new_emb
+
+        return final_embeddings  # type: ignore
+
+    return embeddings
 
 
 def _ingest_repo(source: SourceConfig, storage: Storage, embedder: OllamaEmbedder, vectors: VectorStore, stats: dict) -> None:
@@ -270,13 +343,16 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
         stats["chunks"] += len(chunks)
 
 
-def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = None) -> IngestRunResult:
+def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = None, rechunk_only: bool = False) -> IngestRunResult:
     """
     Ingest all sources from a context.
 
     Uses context.index paths for storage.
     Applies context.weights for source-type prioritization.
     Uses fingerprinting for incremental ingest.
+
+    When rechunk_only=True, rechunks files and reuses embeddings where possible
+    (optimization for when only chunking strategy changed).
     """
     import uuid
     from datetime import timezone
@@ -310,6 +386,9 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             skipped_doc_ids: list[str] = []
             error_doc_ids: list[str] = []
             stats = {"documents": 0, "chunks": 0, "skipped": 0}
+            if rechunk_only:
+                stats["embeddings_reused"] = 0
+                stats["embeddings_new"] = 0
 
             # Create tracking dict to pass to helper functions
             tracking = {
@@ -326,7 +405,7 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                     print(f"Warning: repo path {repo_path} does not exist, skipping.")
                     continue
                 _ingest_repo_from_context(
-                    ctx, repo_path, storage, embedder, vectors, stats, tracking
+                    ctx, repo_path, storage, embedder, vectors, stats, tracking, rechunk_only
                 )
 
             # Ingest chat roots
@@ -335,7 +414,7 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
                     print(f"Warning: chat_root {chat_root} does not exist, skipping.")
                     continue
                 _ingest_chat_from_context(
-                    ctx, chat_root, storage, embedder, vectors, stats, tracking
+                    ctx, chat_root, storage, embedder, vectors, stats, tracking, rechunk_only
                 )
 
             # Ingest Codex sessions
@@ -344,13 +423,27 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             if ctx.includes.codex_session_roots:
                 appserver_url = os.getenv("CHINVEX_APPSERVER_URL", "http://localhost:8080")
                 _ingest_codex_sessions_from_context(
-                    ctx, appserver_url, storage, embedder, vectors, stats, tracking
+                    ctx, appserver_url, storage, embedder, vectors, stats, tracking, rechunk_only
                 )
 
             # TODO: Ingest note_roots (post-P0)
 
             finished_at = datetime.now(timezone.utc)
             storage.record_run(run_id, now_iso(), dump_json(stats))
+
+            # Auto-archive hook (before closing storage)
+            if ctx.archive and ctx.archive.enabled and ctx.archive.auto_archive_on_ingest:
+                from .archive import archive_old_documents
+
+                archived_count = archive_old_documents(
+                    storage,
+                    age_threshold_days=ctx.archive.age_threshold_days,
+                    dry_run=False
+                )
+
+                if archived_count > 0:
+                    print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
+
             storage.close()
 
             result = IngestRunResult(
@@ -388,6 +481,7 @@ def _ingest_repo_from_context(
     vectors: VectorStore,
     stats: dict,
     tracking: dict,
+    rechunk_only: bool = False,
 ) -> None:
     """Ingest a single repo with fingerprinting."""
     for path in walk_files(repo_path):
@@ -443,6 +537,7 @@ def _ingest_repo_from_context(
 
         for chunk in chunks:
             chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+            ck = chunk_key(chunk.text)
             cmeta = {
                 "doc_id": doc_id,
                 "ordinal": chunk.ordinal,
@@ -462,6 +557,7 @@ def _ingest_repo_from_context(
                 chunk.text,
                 updated_at,
                 dump_json(cmeta),
+                ck,  # chunk_key
             ))
             fts_rows.append((chunk_id, chunk.text))
             ids.append(chunk_id)
@@ -476,7 +572,7 @@ def _ingest_repo_from_context(
                 "char_end": chunk.char_end,
             })
 
-        embeddings = embedder.embed(docs)
+        embeddings = _conditional_embed(docs, storage, embedder, vectors, stats, rechunk_only)
         storage.upsert_chunks(chunk_rows)
         storage.upsert_fts(fts_rows)
         vectors.upsert(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)
@@ -516,6 +612,7 @@ def _ingest_chat_from_context(
     vectors: VectorStore,
     stats: dict,
     tracking: dict,
+    rechunk_only: bool = False,
 ) -> None:
     """Ingest chat exports from a root directory with fingerprinting."""
     for path in Path(chat_root).glob("*.json"):
@@ -588,6 +685,7 @@ def _ingest_chat_from_context(
 
         for chunk in chunks:
             chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+            ck = chunk_key(chunk.text)
             cmeta = {
                 "doc_id": doc_id,
                 "ordinal": chunk.ordinal,
@@ -608,6 +706,7 @@ def _ingest_chat_from_context(
                 chunk.text,
                 exported_at,
                 dump_json(cmeta),
+                ck,  # chunk_key
             ))
             fts_rows.append((chunk_id, chunk.text))
             ids.append(chunk_id)
@@ -622,7 +721,7 @@ def _ingest_chat_from_context(
                 "title": title,
             })
 
-        embeddings = embedder.embed(docs)
+        embeddings = _conditional_embed(docs, storage, embedder, vectors, stats, rechunk_only)
         storage.upsert_chunks(chunk_rows)
         storage.upsert_fts(fts_rows)
         vectors.upsert(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)
@@ -655,6 +754,7 @@ def _ingest_codex_sessions_from_context(
     vectors: VectorStore,
     stats: dict,
     tracking: dict,
+    rechunk_only: bool = False,
 ) -> None:
     """
     Ingest Codex sessions from app-server with fingerprinting.
@@ -745,6 +845,7 @@ def _ingest_codex_sessions_from_context(
 
         for chunk in chunks:
             chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+            ck = chunk_key(chunk.text)
             cmeta = {
                 "doc_id": doc_id,
                 "ordinal": chunk.ordinal,
@@ -762,6 +863,7 @@ def _ingest_codex_sessions_from_context(
                 chunk.text,
                 updated_at,
                 dump_json(cmeta),
+                ck,  # chunk_key
             ))
             fts_rows.append((chunk_id, chunk.text))
             ids.append(chunk_id)
@@ -774,7 +876,7 @@ def _ingest_codex_sessions_from_context(
                 "title": conversation_doc["title"],
             })
 
-        embeddings = embedder.embed(docs)
+        embeddings = _conditional_embed(docs, storage, embedder, vectors, stats, rechunk_only)
         storage.upsert_chunks(chunk_rows)
         storage.upsert_fts(fts_rows)
         vectors.upsert(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)

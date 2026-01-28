@@ -47,6 +47,15 @@ class RankingConfig:
 
 
 @dataclass(frozen=True)
+class ArchiveConfig:
+    """Archive tier configuration (P3)."""
+    enabled: bool
+    age_threshold_days: int
+    auto_archive_on_ingest: bool
+    archive_penalty: float
+
+
+@dataclass(frozen=True)
 class ContextConfig:
     schema_version: int
     name: str
@@ -61,6 +70,8 @@ class ContextConfig:
     codex_appserver: CodexAppServerConfig | None = None
     ranking: RankingConfig | None = None
     state_llm: dict | None = None
+    # P3 additions
+    archive: ArchiveConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> ContextConfig:
@@ -117,6 +128,17 @@ class ContextConfig:
 
         state_llm = data.get("state_llm")
 
+        # P3: archive config (optional)
+        archive = None
+        if "archive" in data:
+            arch_data = data["archive"]
+            archive = ArchiveConfig(
+                enabled=arch_data.get("enabled", True),
+                age_threshold_days=arch_data.get("age_threshold_days", 180),
+                auto_archive_on_ingest=arch_data.get("auto_archive_on_ingest", True),
+                archive_penalty=arch_data.get("archive_penalty", 0.8),
+            )
+
         # Handle missing timestamp fields for old contexts
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -134,6 +156,7 @@ class ContextConfig:
             codex_appserver=codex_appserver,
             ranking=ranking,
             state_llm=state_llm,
+            archive=archive,
         )
 
     def to_dict(self) -> dict:
@@ -175,6 +198,15 @@ class ContextConfig:
             }
         if self.state_llm is not None:
             result["state_llm"] = self.state_llm
+
+        # P3: archive config (optional)
+        if self.archive is not None:
+            result["archive"] = {
+                "enabled": self.archive.enabled,
+                "age_threshold_days": self.archive.age_threshold_days,
+                "auto_archive_on_ingest": self.archive.auto_archive_on_ingest,
+                "archive_penalty": self.archive.archive_penalty,
+            }
 
         return result
 
