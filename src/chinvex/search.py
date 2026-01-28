@@ -288,3 +288,66 @@ def search_context(
 
     storage.close()
     return results[:k]
+
+
+def hybrid_search_from_context(
+    context,
+    query: str,
+    k: int = 8,
+    source_types: list[str] | None = None,
+    no_recency: bool = False
+):
+    """
+    Wrapper for context-based search (used by gateway).
+
+    Args:
+        context: Context object from chinvex.context.load_context()
+        query: Search query
+        k: Number of results
+        source_types: Filter by source types
+        no_recency: Disable recency decay
+
+    Returns:
+        List of search results with scores
+    """
+    from .storage import Storage
+    from .vectors import VectorStore
+    from .embed import OllamaEmbedder
+    from .ranking import apply_recency_decay
+
+    db_path = context.index.sqlite_path
+    chroma_dir = context.index.chroma_dir
+
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    # FTS search
+    fts_results = storage.search_fts(query, limit=k * 2)
+
+    # Vector search
+    embedder = OllamaEmbedder(
+        model=context.ollama.embed_model,
+        host=context.ollama.base_url
+    )
+    vec_store = VectorStore(chroma_dir)
+    query_embedding = embedder.embed([query])
+    vec_results = vec_store.query(query_embedding, n_results=k * 2)
+
+    # Merge and score
+    from .scoring import merge_and_rank
+    results = merge_and_rank(
+        fts_results=fts_results,
+        vec_results=vec_results,
+        storage=storage,
+        weights=context.weights,
+        k=k
+    )
+
+    # Apply recency if enabled
+    if not no_recency and hasattr(context, 'ranking') and context.ranking.recency_enabled:
+        results = apply_recency_decay(
+            results,
+            half_life_days=context.ranking.recency_half_life_days
+        )
+
+    return results

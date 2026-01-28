@@ -361,5 +361,132 @@ def watch_remove_cmd(
     typer.secho(f"Removed watch '{id}'", fg=typer.colors.GREEN)
 
 
+# Add gateway subcommand group
+gateway_app = typer.Typer(help="Gateway server commands")
+app.add_typer(gateway_app, name="gateway")
+
+
+@gateway_app.command("serve")
+def gateway_serve(
+    host: str = typer.Option(None, help="Host to bind (overrides config)"),
+    port: int = typer.Option(None, help="Port to bind (overrides config)"),
+    reload: bool = typer.Option(False, help="Enable auto-reload (dev only)")
+):
+    """
+    Start the gateway server.
+
+    Example:
+        chinvex gateway serve --port 7778
+    """
+    import sys
+    import uvicorn
+    from .gateway.config import load_gateway_config
+
+    config = load_gateway_config()
+
+    # Check token is configured
+    if not config.token:
+        typer.echo(f"Error: {config.token_env} environment variable not set", err=True)
+        typer.echo("Run 'chinvex gateway token-generate' to create a token", err=True)
+        sys.exit(1)
+
+    final_host = host or config.host
+    final_port = port or config.port
+
+    typer.echo(f"Starting Chinvex Gateway on {final_host}:{final_port}")
+    typer.echo(f"Context allowlist: {config.context_allowlist or 'all contexts'}")
+    typer.echo(f"Server-side LLM: {'enabled' if config.enable_server_llm else 'disabled'}")
+
+    uvicorn.run(
+        "chinvex.gateway.app:app",
+        host=final_host,
+        port=final_port,
+        reload=reload
+    )
+
+
+@gateway_app.command("token-generate")
+def gateway_token_generate():
+    """
+    Generate a new API token.
+
+    Example:
+        chinvex gateway token-generate
+    """
+    import secrets
+
+    new_token = secrets.token_urlsafe(32)
+
+    typer.echo("Generated new API token:")
+    typer.echo()
+    typer.echo(f"export CHINVEX_API_TOKEN={new_token}")
+    typer.echo()
+    typer.echo("Add this to your environment or secrets manager.")
+    typer.echo("For ChatGPT Actions, use this token in the API Key field.")
+
+
+@gateway_app.command("token-rotate")
+def gateway_token_rotate():
+    """
+    Rotate API token (generates new, shows old).
+
+    Example:
+        chinvex gateway token-rotate
+    """
+    import secrets
+    from .gateway.config import load_gateway_config
+
+    config = load_gateway_config()
+    old_token = config.token
+    new_token = secrets.token_urlsafe(32)
+
+    typer.echo("Token rotation:")
+    typer.echo()
+    if old_token:
+        typer.echo(f"Old token: {old_token[:8]}...{old_token[-8:]}")
+    else:
+        typer.echo("Old token: (none)")
+    typer.echo(f"New token: {new_token}")
+    typer.echo()
+    typer.echo(f"export CHINVEX_API_TOKEN={new_token}")
+    typer.echo()
+    typer.echo("Update this in:")
+    typer.echo("- Environment variables")
+    typer.echo("- ChatGPT Actions configuration")
+
+
+@gateway_app.command("status")
+def gateway_status():
+    """
+    Check gateway status and configuration.
+
+    Example:
+        chinvex gateway status
+    """
+    from .gateway.config import load_gateway_config
+    from .context import list_contexts
+
+    config = load_gateway_config()
+    contexts = list_contexts()
+
+    typer.echo("Gateway Configuration:")
+    typer.echo(f"  Host: {config.host}")
+    typer.echo(f"  Port: {config.port}")
+    typer.echo(f"  Token configured: {'Yes' if config.token else 'No'}")
+    typer.echo(f"  Server-side LLM: {'Enabled' if config.enable_server_llm else 'Disabled'}")
+    typer.echo()
+    typer.echo("Contexts:")
+    if config.context_allowlist:
+        typer.echo(f"  Allowlist: {', '.join(config.context_allowlist)}")
+    else:
+        typer.echo(f"  All contexts available ({len(contexts)} total)")
+    typer.echo()
+    typer.echo("Rate Limits:")
+    typer.echo(f"  Per minute: {config.rate_limit.requests_per_minute}")
+    typer.echo(f"  Per hour: {config.rate_limit.requests_per_hour}")
+    typer.echo()
+    typer.echo(f"Audit log: {config.audit_log_path}")
+
+
 if __name__ == "__main__":
     app()

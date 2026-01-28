@@ -3,13 +3,16 @@ name = "chinvex"
 version = "0.1.0"
 description = "Hybrid retrieval index CLI (SQLite FTS5 + Chroma) powered by Ollama embeddings."
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"
 dependencies = [
   "typer>=0.12.3",
   "chromadb>=0.5.3",
   "requests>=2.32.3",
   "mcp>=1.0.0",
   "portalocker>=2.10.1",
+  "fastapi>=0.109.0",
+  "uvicorn[standard]>=0.27.0",
+  "pydantic>=2.5.0",
 ]
 
 [project.scripts]

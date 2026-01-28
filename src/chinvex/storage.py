@@ -166,6 +166,22 @@ class Storage:
         cur = self._execute("SELECT * FROM documents WHERE doc_id = ?", (doc_id,))
         return cur.fetchone()
 
+    def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[sqlite3.Row]:
+        """Fetch multiple chunks by their IDs with source_uri from documents."""
+        if not chunk_ids:
+            return []
+        placeholders = ",".join("?" * len(chunk_ids))
+        cur = self._execute(
+            f"""
+            SELECT c.*, d.source_uri
+            FROM chunks c
+            JOIN documents d ON c.doc_id = d.doc_id
+            WHERE c.chunk_id IN ({placeholders})
+            """,
+            chunk_ids
+        )
+        return cur.fetchall()
+
     def upsert_document(
         self,
         *,
