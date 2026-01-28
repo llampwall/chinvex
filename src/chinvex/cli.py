@@ -41,6 +41,7 @@ def ingest_cmd(
     context: str | None = typer.Option(None, "--context", "-c", help="Context name to ingest"),
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
+    rechunk_only: bool = typer.Option(False, "--rechunk-only", help="Rechunk only, reuse embeddings when possible"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -56,12 +57,14 @@ def ingest_cmd(
 
         contexts_root = get_contexts_root()
         ctx = load_context(context, contexts_root)
-        result = ingest_context(ctx, ollama_host_override=ollama_host)
+        result = ingest_context(ctx, ollama_host_override=ollama_host, rechunk_only=rechunk_only)
 
         typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
         typer.echo(f"  Documents: {result.stats['documents']}")
         typer.echo(f"  Chunks: {result.stats['chunks']}")
         typer.echo(f"  Skipped: {result.stats['skipped']}")
+        if rechunk_only and 'embeddings_reused' in result.stats:
+            typer.echo(f"  Rechunk optimization: {result.stats['embeddings_reused']} embeddings reused, {result.stats['embeddings_new']} new")
     else:
         # Old config-based ingestion (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
@@ -420,6 +423,59 @@ def watch_remove_cmd(
     # Save
     watch_path.write_text(json.dumps(watch_data, indent=2), encoding='utf-8')
     typer.secho(f"Removed watch '{id}'", fg=typer.colors.GREEN)
+
+
+@watch_app.command("history")
+def watch_history_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    since: str | None = typer.Option(None, "--since", help="Filter by time (e.g., 7d, 1h)"),
+    id: str | None = typer.Option(None, "--id", help="Filter by watch ID"),
+    limit: int = typer.Option(50, "--limit", help="Maximum entries to show"),
+    format: str = typer.Option("table", "--format", help="Output format: table, json"),
+) -> None:
+    """View watch history."""
+    from datetime import datetime, timedelta
+    from .context import load_context
+    from .watch.history import read_watch_history, format_history_table, format_history_json
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+
+    # Parse since filter
+    since_ts = None
+    if since:
+        since_ts = parse_time_delta(since)
+
+    # Read history
+    entries = read_watch_history(
+        ctx,
+        since=since_ts,
+        watch_id=id,
+        limit=limit,
+    )
+
+    # Format output
+    if format == "json":
+        typer.echo(format_history_json(entries))
+    else:
+        typer.echo(format_history_table(entries))
+
+
+def parse_time_delta(s: str) -> datetime:
+    """Parse time delta string like '7d', '1h' into datetime."""
+    from datetime import datetime, timedelta
+
+    if s.endswith('d'):
+        days = int(s[:-1])
+        return datetime.utcnow() - timedelta(days=days)
+    elif s.endswith('h'):
+        hours = int(s[:-1])
+        return datetime.utcnow() - timedelta(hours=hours)
+    elif s.endswith('m'):
+        minutes = int(s[:-1])
+        return datetime.utcnow() - timedelta(minutes=minutes)
+    else:
+        raise ValueError(f"Invalid time delta: {s}")
 
 
 # Add gateway subcommand group
