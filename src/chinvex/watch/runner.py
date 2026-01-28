@@ -1,5 +1,7 @@
 import logging
+import json
 from datetime import datetime
+from pathlib import Path
 from chinvex.state.models import WatchHit
 
 log = logging.getLogger(__name__)
@@ -69,3 +71,52 @@ def run_watches(
             continue
 
     return hits
+
+
+def append_watch_history(history_file: str, entry: dict):
+    """
+    Append watch history entry to JSONL log.
+
+    Creates file if it doesn't exist.
+    """
+    Path(history_file).parent.mkdir(parents=True, exist_ok=True)
+
+    with open(history_file, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(entry) + '\n')
+
+
+def create_watch_history_entry(
+    watch_id: str,
+    query: str,
+    hits: list[dict],
+    run_id: str
+) -> dict:
+    """
+    Create watch history entry with hit capping.
+
+    Caps hits at 10 and marks as truncated if exceeded.
+    """
+    truncated = len(hits) > 10
+    capped_hits = hits[:10]
+
+    # Extract snippet (first 200 chars) from each hit
+    formatted_hits = []
+    for hit in capped_hits:
+        formatted_hits.append({
+            "chunk_id": hit["chunk_id"],
+            "score": hit["score"],
+            "snippet": hit.get("snippet", hit.get("text", ""))[:200]
+        })
+
+    entry = {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "run_id": run_id,
+        "watch_id": watch_id,
+        "query": query,
+        "hits": formatted_hits,
+    }
+
+    if truncated:
+        entry["truncated"] = True
+
+    return entry
