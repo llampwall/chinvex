@@ -42,6 +42,9 @@ def ingest_cmd(
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
     rechunk_only: bool = typer.Option(False, "--rechunk-only", help="Rechunk only, reuse embeddings when possible"),
+    repo: list[str] = typer.Option([], "--repo", help="Add repo path to context (can be repeated)"),
+    chat_root: list[str] = typer.Option([], "--chat-root", help="Add chat root to context (can be repeated)"),
+    no_write_context: bool = typer.Option(False, "--no-write-context", help="Ingest ad-hoc without mutating context.json"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -51,12 +54,82 @@ def ingest_cmd(
         raise typer.Exit(code=2)
 
     if context:
+        # Validate repo paths exist
+        for repo_path in repo:
+            if not Path(repo_path).exists():
+                typer.secho(f"Error: Repo path does not exist: {repo_path}", fg=typer.colors.RED)
+                raise typer.Exit(code=2)
+
+        # Validate chat roots exist
+        for chat_path in chat_root:
+            if not Path(chat_path).exists():
+                typer.secho(f"Error: Chat root does not exist: {chat_path}", fg=typer.colors.RED)
+                raise typer.Exit(code=2)
+
         # New context-based ingestion
         from .context import load_context
+        from .context_cli import create_context_if_missing
         from .ingest import ingest_context
 
         contexts_root = get_contexts_root()
-        ctx = load_context(context, contexts_root)
+
+        # Auto-create context if needed (unless --no-write-context)
+        if no_write_context:
+            # For --no-write-context, create context in memory only
+            from .context import ContextConfig, ContextIncludes, ContextIndex, OllamaConfig
+            from datetime import datetime, timezone
+
+            indexes_root = get_contexts_root().parent / "indexes"
+            index_dir = indexes_root / context
+            index_dir.mkdir(parents=True, exist_ok=True)
+
+            # Initialize database if needed
+            from .storage import Storage
+            db_path = index_dir / "hybrid.db"
+            if not db_path.exists():
+                storage = Storage(db_path)
+                storage.ensure_schema()
+                storage.close()
+
+            # Initialize Chroma if needed
+            from .vectors import VectorStore
+            chroma_dir = index_dir / "chroma"
+            chroma_dir.mkdir(parents=True, exist_ok=True)
+            if not (chroma_dir / "chroma.sqlite3").exists():
+                vectors = VectorStore(chroma_dir)
+
+            now = datetime.now(timezone.utc).isoformat()
+            ctx = ContextConfig(
+                schema_version=1,
+                name=context,
+                aliases=[],
+                includes=ContextIncludes(
+                    repos=[Path(r).resolve() for r in repo],
+                    chat_roots=[Path(c).resolve() for c in chat_root],
+                    codex_session_roots=[],
+                    note_roots=[]
+                ),
+                index=ContextIndex(
+                    sqlite_path=db_path,
+                    chroma_dir=chroma_dir
+                ),
+                weights={"repo": 1.0, "chat": 0.8, "codex_session": 0.9, "note": 0.7},
+                ollama=OllamaConfig(
+                    base_url="http://skynet:11434",
+                    embed_model="mxbai-embed-large"
+                ),
+                created_at=now,
+                updated_at=now
+            )
+        else:
+            # Normal path: create/update context.json and load it
+            create_context_if_missing(
+                context,
+                contexts_root,
+                repos=repo if repo else None,
+                chat_roots=chat_root if chat_root else None
+            )
+            ctx = load_context(context, contexts_root)
         result = ingest_context(ctx, ollama_host_override=ollama_host, rechunk_only=rechunk_only)
 
         typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
