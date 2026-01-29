@@ -20,10 +20,10 @@ class HealthzResponse(BaseModel):
 async def healthz():
     """
     Deep health check - verifies DB and Chroma readiness.
-    Requires authentication (enforced at router level).
+    Public endpoint for monitoring systems.
 
     Returns:
-        Status with individual check results (redacted for security)
+        Status with individual check results
     """
     checks = {}
     all_ok = True

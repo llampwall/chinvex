@@ -26,6 +26,7 @@ chroma/
 *.local.json
 *.local.toml
 *.env
+start_gateway.ps1
 
 # Worktrees
 .worktrees/

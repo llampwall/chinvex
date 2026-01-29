@@ -540,6 +540,8 @@ def gateway_token_generate():
     typer.echo()
     typer.echo("Add this to your environment or secrets manager.")
     typer.echo("For ChatGPT Actions, use this token in the API Key field.")
+    typer.echo()
+    typer.echo("If using start_gateway.ps1, update the token in that file.")
 
 
 @gateway_app.command("token-rotate")
@@ -570,6 +572,7 @@ def gateway_token_rotate():
     typer.echo("Update this in:")
     typer.echo("- Environment variables")
     typer.echo("- ChatGPT Actions configuration")
+    typer.echo("- start_gateway.ps1 (if using that script)")
 
 
 @gateway_app.command("status")
@@ -621,7 +624,7 @@ def archive(
 
     contexts_root = get_contexts_root()
     ctx = load_context(context, contexts_root)
-    db_path = ctx.index_dir / "hybrid.db"
+    db_path = ctx.index.sqlite_path
     storage = Storage(db_path)
     storage.ensure_schema()
 

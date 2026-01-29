@@ -1,9 +1,27 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 from dataclasses import dataclass
 from math import ceil
+
+
+def chunk_key(text: str) -> str:
+    """
+    Generate stable key for chunk embedding lookup.
+
+    Normalizes whitespace before hashing to handle minor formatting differences.
+
+    Returns:
+        16-character hex string (sha256 prefix)
+    """
+    # Collapse all whitespace to single spaces
+    normalized = ' '.join(text.split())
+    # Hash normalized text
+    hash_bytes = hashlib.sha256(normalized.encode('utf-8')).digest()
+    # Return first 16 hex chars (64 bits)
+    return hash_bytes.hex()[:16]
 
 
 MAX_CHARS = 3000

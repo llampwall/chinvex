@@ -30,19 +30,28 @@ async def get_evidence(req: EvidenceRequest, request: Request):
     Search with grounding check. Primary endpoint for ChatGPT Actions.
 
     Args:
-        req: Evidence request with context, query, k
+        req: Evidence request with context or contexts, query, k
         request: FastAPI request (for audit logging)
 
     Returns:
         Evidence response with grounded status and chunks
     """
+    # Determine which context to use
+    if req.contexts:
+        # Use first context from list (cross-context not fully supported yet)
+        context_name = req.contexts[0]
+    elif req.context:
+        context_name = req.context
+    else:
+        raise HTTPException(status_code=422, detail="Either context or contexts required")
+
     # Store context in request state for audit logging
-    request.state.context = req.context
+    request.state.context = context_name
 
     # Load context and verify it exists
     try:
         contexts_root = get_contexts_root()
-        context = load_context(req.context, contexts_root)
+        context = load_context(context_name, contexts_root)
     except ContextNotFoundError:
         raise HTTPException(status_code=404, detail="Context not found")
     except Exception as e:
@@ -50,7 +59,7 @@ async def get_evidence(req: EvidenceRequest, request: Request):
 
     # Check context allowlist
     config = load_gateway_config()
-    if config.context_allowlist and req.context not in config.context_allowlist:
+    if config.context_allowlist and context_name not in config.context_allowlist:
         raise HTTPException(status_code=404, detail="Context not found")
 
     # Perform search
@@ -90,7 +99,7 @@ async def get_evidence(req: EvidenceRequest, request: Request):
         message = "No retrieved content supports a direct answer to this query."
 
     return EvidenceResponse(
-        context=req.context,
+        context=context_name,
         query=req.query,
         grounded=grounded,
         evidence_pack=evidence_pack,

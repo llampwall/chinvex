@@ -26,3 +26,15 @@ class VectorStore:
 
     def count(self) -> int:
         return self.collection.count()
+
+    def get_embeddings(self, ids: list[str]) -> dict:
+        """
+        Get embeddings for specific chunk IDs.
+
+        Returns dict with 'ids' and 'embeddings' keys.
+        Empty lists if IDs not found.
+        """
+        if not ids:
+            return {"ids": [], "embeddings": []}
+        result = self.collection.get(ids=ids, include=["embeddings"])
+        return result

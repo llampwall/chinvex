@@ -17,7 +17,8 @@ from .rate_limit import RateLimiter
 from .audit import AuditLogger
 from .error_log import RotatingErrorLogger
 from .config import load_gateway_config
-from .endpoints import health, healthz, search, evidence, chunks, contexts
+from .metrics import MetricsCollector
+from .endpoints import health, healthz, search, evidence, chunks, contexts, metrics
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,7 @@ rate_limiter = RateLimiter({
 })
 audit_logger = AuditLogger(config.audit_log_path)
 error_logger = RotatingErrorLogger("P:/ai_memory/gateway_errors.jsonl", max_size_mb=50, max_files=5)
+metrics_collector = MetricsCollector()
 
 # CORS middleware
 app.add_middleware(
@@ -74,6 +76,13 @@ async def audit_middleware(request: Request, call_next):
         latency_ms=latency_ms,
         context=context,
         client_ip=request.client.host if request.client else None
+    )
+
+    # Record metrics
+    metrics_collector.record_request(
+        endpoint=request.url.path,
+        status_code=response.status_code,
+        duration=latency_ms / 1000.0  # Convert to seconds
     )
 
     return response
@@ -148,9 +157,10 @@ async def startup_warmup():
         logger.error(f"Warmup failed (non-fatal): {e}", exc_info=True)
 
 
-# Routers - health endpoint is public, healthz requires auth
+# Routers - health endpoints are public for monitoring
 app.include_router(health.router, tags=["Health"])
-app.include_router(healthz.router, tags=["Health"], dependencies=[Depends(verify_token)])
+app.include_router(healthz.router, tags=["Health"])
+app.include_router(metrics.router, tags=["Metrics"])
 
 # Protected routers with auth + rate limiting
 app.include_router(
