@@ -1,13 +1,53 @@
 from __future__ import annotations
 
+import time
+from typing import Iterable
+
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+
+def _batched(iterable: list[str], max_items: int, max_bytes: int) -> Iterable[list[str]]:
+    """Batch texts by count AND size to avoid massive payloads."""
+    batch = []
+    size = 0
+    for item in iterable:
+        item_size = len(item)
+        if batch and (len(batch) >= max_items or size + item_size >= max_bytes):
+            yield batch
+            batch = []
+            size = 0
+        batch.append(item)
+        size += item_size
+    if batch:
+        yield batch
+
+
+def _make_session() -> requests.Session:
+    """Create session with connection pooling (no auto-retry - we handle that at app level)."""
+    s = requests.Session()
+    retry = Retry(total=0, backoff_factor=0)
+    s.mount("http://", HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10))
+    s.mount("https://", HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10))
+    return s
 
 
 class OllamaEmbedder:
-    def __init__(self, host: str, model: str, fallback_host: str | None = None) -> None:
+    def __init__(
+        self,
+        host: str,
+        model: str,
+        fallback_host: str | None = None,
+        max_items_per_batch: int = 64,
+        max_payload_bytes: int = 1_000_000,
+    ) -> None:
         self.host = host.rstrip("/")
         self.model = model
         self.fallback_host = fallback_host.rstrip("/") if fallback_host else None
+        self.max_items_per_batch = max_items_per_batch
+        self.max_payload_bytes = max_payload_bytes
+        self.session = _make_session()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -33,27 +73,64 @@ class OllamaEmbedder:
             ) from exc
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed texts in safe batches with retry logic."""
         url = f"{self.host}/api/embed"
-        payload = {"model": self.model, "input": texts}
-        resp = requests.post(url, json=payload, timeout=60)
-        if resp.status_code == 404:
-            return [self._embed_single(t) for t in texts]
-        if resp.status_code in {400, 500} and self._is_context_length_error(resp):
-            return [self._embed_single(t) for t in texts]
-        if resp.status_code >= 400:
-            self._raise_ollama_error(resp)
-        data = resp.json()
-        embeddings = data.get("embeddings")
-        if isinstance(embeddings, list) and embeddings and isinstance(embeddings[0], (int, float)):
-            return [embeddings]
-        if not embeddings:
-            raise RuntimeError(f"Ollama response missing embeddings field: {data}")
-        return embeddings
+        out: list[list[float]] = []
+        timeout = (5, 180)  # connect timeout 5s, read timeout 180s
+
+        for batch in _batched(texts, self.max_items_per_batch, self.max_payload_bytes):
+            payload = {"model": self.model, "input": batch}
+
+            # Retry up to 3 times on transient transport errors
+            for attempt in range(3):
+                try:
+                    resp = self.session.post(url, json=payload, timeout=timeout)
+
+                    # Handle 404 (old Ollama) or context length errors - fallback to single
+                    if resp.status_code == 404:
+                        out.extend([self._embed_single(t) for t in batch])
+                        break
+                    if resp.status_code in {400, 500} and self._is_context_length_error(resp):
+                        out.extend([self._embed_single(t) for t in batch])
+                        break
+
+                    # Other errors
+                    if resp.status_code >= 400:
+                        self._raise_ollama_error(resp)
+
+                    # Success - parse embeddings
+                    data = resp.json()
+                    embeddings = data.get("embeddings")
+                    if isinstance(embeddings, list) and embeddings and isinstance(embeddings[0], (int, float)):
+                        out.append(embeddings)
+                    elif not embeddings:
+                        raise RuntimeError(f"Ollama response missing embeddings field: {data}")
+                    else:
+                        out.extend(embeddings)
+
+                    break  # success
+
+                except (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.ReadTimeout,
+                    requests.exceptions.ChunkedEncodingError,
+                    ConnectionResetError,
+                ) as e:
+                    if attempt == 2:  # last attempt
+                        raise
+                    # Exponential backoff: 0.5s → 1s → 2s
+                    time.sleep(0.5 * (2 ** attempt))
+
+        if len(out) != len(texts):
+            raise RuntimeError(f"Embedding count mismatch: got {len(out)} expected {len(texts)}")
+
+        return out
 
     def _embed_single(self, text: str) -> list[float]:
         url = f"{self.host}/api/embeddings"
         payload = {"model": self.model, "prompt": text}
-        resp = requests.post(url, json=payload, timeout=60)
+        timeout = (5, 180)  # connect timeout 5s, read timeout 180s
+        resp = self.session.post(url, json=payload, timeout=timeout)
         if resp.status_code in {400, 500} and self._is_context_length_error(resp):
             return self._embed_split(text)
         if resp.status_code >= 400:
