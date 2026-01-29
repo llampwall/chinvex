@@ -57,6 +57,13 @@ class ArchiveConfig:
 
 
 @dataclass(frozen=True)
+class EmbeddingConfig:
+    """Embedding provider configuration (P4)."""
+    provider: str  # "ollama" or "openai"
+    model: str | None = None  # Optional model override
+
+
+@dataclass(frozen=True)
 class NotificationsConfig:
     """Webhook notification configuration (P3)."""
     enabled: bool
@@ -86,6 +93,8 @@ class ContextConfig:
     # P3 additions
     archive: ArchiveConfig | None = None
     notifications: NotificationsConfig | None = None
+    # P4 additions
+    embedding: EmbeddingConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> ContextConfig:
@@ -168,6 +177,15 @@ class ContextConfig:
                 retry_delay_sec=notif_data.get("retry_delay_sec", 5),
             )
 
+        # P4: embedding config (optional)
+        embedding = None
+        if "embedding" in data:
+            emb_data = data["embedding"]
+            embedding = EmbeddingConfig(
+                provider=emb_data.get("provider", "ollama"),
+                model=emb_data.get("model"),
+            )
+
         # Handle missing timestamp fields for old contexts
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -187,6 +205,7 @@ class ContextConfig:
             state_llm=state_llm,
             archive=archive,
             notifications=notifications,
+            embedding=embedding,
         )
 
     def to_dict(self) -> dict:
@@ -250,6 +269,14 @@ class ContextConfig:
                 "retry_count": self.notifications.retry_count,
                 "retry_delay_sec": self.notifications.retry_delay_sec,
             }
+
+        # P4: embedding config (optional)
+        if self.embedding is not None:
+            result["embedding"] = {
+                "provider": self.embedding.provider,
+            }
+            if self.embedding.model is not None:
+                result["embedding"]["model"] = self.embedding.model
 
         return result
 

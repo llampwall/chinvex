@@ -406,9 +406,20 @@ def ingest_context(
             # Get provider with precedence: CLI > context.json > env > default
             env_provider = os.getenv("CHINVEX_EMBED_PROVIDER")
             ollama_host = ollama_host_override or ctx.ollama.base_url
+
+            # Extract embedding config from context
+            context_config = None
+            if ctx.embedding:
+                context_config = {
+                    "embedding": {
+                        "provider": ctx.embedding.provider,
+                        "model": ctx.embedding.model,
+                    }
+                }
+
             provider = get_provider(
                 cli_provider=embed_provider,
-                context_config=None,  # TODO: read from ctx config
+                context_config=context_config,
                 env_provider=env_provider,
                 ollama_host=ollama_host
             )
@@ -499,6 +510,8 @@ def ingest_context(
                 "skipped": 0,
                 "embeddings_reused": 0,
                 "embeddings_new": 0,
+                "chunks_new": 0,
+                "chunks_updated": 0,
             }
 
             # Create tracking dict to pass to helper functions
@@ -576,8 +589,8 @@ def ingest_context(
                     status="succeeded",
                     docs_seen=stats["documents"] + stats["skipped"],
                     docs_changed=stats["documents"],
-                    chunks_new=stats["chunks"],
-                    chunks_updated=0  # TODO: track updates properly
+                    chunks_new=stats["chunks_new"],
+                    chunks_updated=stats["chunks_updated"]
                 )
 
                 # Call post-ingest hook
@@ -721,8 +734,10 @@ def _ingest_repo_from_context(
         # Track document and chunk IDs
         if is_new_doc:
             tracking["new_doc_ids"].append(doc_id)
+            stats["chunks_new"] += len(chunks)
         else:
             tracking["updated_doc_ids"].append(doc_id)
+            stats["chunks_updated"] += len(chunks)
         tracking["new_chunk_ids"].extend(ids)
 
         stats["documents"] += 1
@@ -774,6 +789,9 @@ def _ingest_chat_from_context(
         if fp and fp["content_sha256"] == content_hash:
             stats["skipped"] += 1
             continue
+
+        # Track if this is new or updated
+        is_new_doc = fp is None
 
         # Delete old chunks
         chunk_ids = storage.delete_chunks_for_doc(doc_id) if fp else []
@@ -867,6 +885,12 @@ def _ingest_chat_from_context(
             last_error=None,
         )
 
+        # Track chunk counts
+        if is_new_doc:
+            stats["chunks_new"] += len(chunks)
+        else:
+            stats["chunks_updated"] += len(chunks)
+
         stats["documents"] += 1
         stats["chunks"] += len(chunks)
 
@@ -933,6 +957,9 @@ def _ingest_codex_sessions_from_context(
         doc_id = sha256_text(f"codex_session|{ctx.name}|{thread_id}")
         updated_at = conversation_doc["updated_at"]
         content_hash = sha256_text(dump_json(conversation_doc["turns"]))
+
+        # Track if this is new or updated
+        is_new_doc = fp is None
 
         # Delete old chunks
         chunk_ids = storage.delete_chunks_for_doc(doc_id) if fp else []
@@ -1021,6 +1048,12 @@ def _ingest_codex_sessions_from_context(
             last_status="ok",
             last_error=None,
         )
+
+        # Track chunk counts
+        if is_new_doc:
+            stats["chunks_new"] += len(chunks)
+        else:
+            stats["chunks_updated"] += len(chunks)
 
         stats["documents"] += 1
         stats["chunks"] += len(chunks)
