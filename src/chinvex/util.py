@@ -4,6 +4,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import platform
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,3 +80,19 @@ def in_venv() -> bool:
 
 def dataclass_to_json(obj: object) -> str:
     return dump_json(asdict(obj))
+
+
+def normalize_path_for_dedup(path: str | Path) -> str:
+    """
+    Normalize path for deduplication:
+    - Convert to absolute
+    - Use forward slashes
+    - Lowercase on Windows (case-insensitive)
+    """
+    abs_path = Path(path).resolve()
+    normalized = abs_path.as_posix()
+
+    if platform.system() == "Windows":
+        normalized = normalized.lower()
+
+    return normalized
