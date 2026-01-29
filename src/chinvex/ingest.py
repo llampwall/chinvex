@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -343,7 +344,14 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
         stats["chunks"] += len(chunks)
 
 
-def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = None, rechunk_only: bool = False) -> IngestRunResult:
+def ingest_context(
+    ctx: ContextConfig,
+    *,
+    ollama_host_override: str | None = None,
+    rechunk_only: bool = False,
+    embed_provider: str | None = None,
+    rebuild_index: bool = False,
+) -> IngestRunResult:
     """
     Ingest all sources from a context.
 
@@ -353,9 +361,16 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
 
     When rechunk_only=True, rechunks files and reuses embeddings where possible
     (optimization for when only chunking strategy changed).
+
+    Args:
+        embed_provider: Override embedding provider (ollama|openai)
+        rebuild_index: Force rebuild when switching providers
     """
     import uuid
     from datetime import timezone
+    from .embedding_providers import get_provider
+    from .index_meta import IndexMeta, read_index_meta, write_index_meta
+    from .util import now_iso
 
     db_path = ctx.index.sqlite_path
     chroma_dir = ctx.index.chroma_dir
@@ -369,11 +384,55 @@ def ingest_context(ctx: ContextConfig, *, ollama_host_override: str | None = Non
             storage = Storage(db_path)
             storage.ensure_schema()
 
-            # Use Ollama config from context with localhost fallback
+            # Get provider with precedence: CLI > context.json > env > default
+            env_provider = os.getenv("CHINVEX_EMBED_PROVIDER")
             ollama_host = ollama_host_override or ctx.ollama.base_url
+            provider = get_provider(
+                cli_provider=embed_provider,
+                context_config=None,  # TODO: read from ctx config
+                env_provider=env_provider,
+                ollama_host=ollama_host
+            )
+
+            # Check index metadata for dimension compatibility
+            index_dir = db_path.parent
+            meta_path = index_dir / "meta.json"
+            existing_meta = read_index_meta(meta_path)
+
+            if existing_meta:
+                # Validate dimensions match
+                provider_name = provider.__class__.__name__.replace("Provider", "").lower()
+                if not existing_meta.matches_provider(
+                    provider_name,
+                    provider.model_name,
+                    provider.dimensions
+                ):
+                    if not rebuild_index:
+                        raise RuntimeError(
+                            f"Dimension mismatch: index uses {existing_meta.embedding_provider} "
+                            f"({existing_meta.embedding_dimensions}D) but provider is "
+                            f"{provider.model_name} ({provider.dimensions}D). "
+                            f"Use --rebuild-index to switch providers."
+                        )
+                    # Rebuild: clear index
+                    log.warning("Rebuilding index due to provider change")
+                    # TODO: implement full index rebuild (clear SQLite + Chroma)
+            else:
+                # Create meta.json for new index
+                meta = IndexMeta(
+                    schema_version=2,
+                    embedding_provider=provider.__class__.__name__.replace("Provider", "").lower(),
+                    embedding_model=provider.model_name,
+                    embedding_dimensions=provider.dimensions,
+                    created_at=now_iso()
+                )
+                write_index_meta(meta_path, meta)
+
+            # Use provider for embedding (wrap in OllamaEmbedder-compatible interface if needed)
+            # For now, keep using OllamaEmbedder directly
+            # TODO: refactor to use provider.embed() directly
             embedding_model = ctx.ollama.embed_model
             fallback_host = "http://127.0.0.1:11434" if ollama_host != "http://127.0.0.1:11434" else None
-
             embedder = OllamaEmbedder(ollama_host, embedding_model, fallback_host=fallback_host)
             vectors = VectorStore(chroma_dir)
 

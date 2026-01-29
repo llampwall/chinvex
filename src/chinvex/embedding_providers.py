@@ -124,3 +124,44 @@ class OpenAIProvider:
     @property
     def model_name(self) -> str:
         return self.model
+
+
+def get_provider(
+    cli_provider: str | None,
+    context_config: dict | None,
+    env_provider: str | None,
+    ollama_host: str = "http://localhost:11434"
+) -> EmbeddingProvider:
+    """
+    Select embedding provider based on precedence:
+    1. CLI flag
+    2. context.json
+    3. Environment variable
+    4. Default (ollama)
+    """
+    provider_name = None
+    model = None
+
+    # 1. CLI
+    if cli_provider:
+        provider_name = cli_provider
+    # 2. context.json
+    elif context_config and "embedding" in context_config:
+        provider_name = context_config["embedding"].get("provider")
+        model = context_config["embedding"].get("model")
+    # 3. Environment
+    elif env_provider:
+        provider_name = env_provider
+    # 4. Default
+    else:
+        provider_name = "ollama"
+
+    # Instantiate provider
+    if provider_name == "ollama":
+        model = model or "mxbai-embed-large"
+        return OllamaProvider(ollama_host, model)
+    elif provider_name == "openai":
+        model = model or "text-embedding-3-small"
+        return OpenAIProvider(api_key=None, model=model)
+    else:
+        raise ValueError(f"Unknown embedding provider: {provider_name}")

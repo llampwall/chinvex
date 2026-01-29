@@ -42,6 +42,8 @@ def ingest_cmd(
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
     rechunk_only: bool = typer.Option(False, "--rechunk-only", help="Rechunk only, reuse embeddings when possible"),
+    embed_provider: str | None = typer.Option(None, "--embed-provider", help="Embedding provider: ollama|openai"),
+    rebuild_index: bool = typer.Option(False, "--rebuild-index", help="Rebuild index (wipe and re-embed)"),
     repo: list[str] = typer.Option([], "--repo", help="Add repo path to context (can be repeated)"),
     chat_root: list[str] = typer.Option([], "--chat-root", help="Add chat root to context (can be repeated)"),
     no_write_context: bool = typer.Option(False, "--no-write-context", help="Ingest ad-hoc without mutating context.json"),
@@ -130,7 +132,13 @@ def ingest_cmd(
                 chat_roots=chat_root if chat_root else None
             )
             ctx = load_context(context, contexts_root)
-        result = ingest_context(ctx, ollama_host_override=ollama_host, rechunk_only=rechunk_only)
+        result = ingest_context(
+            ctx,
+            ollama_host_override=ollama_host,
+            rechunk_only=rechunk_only,
+            embed_provider=embed_provider,
+            rebuild_index=rebuild_index
+        )
 
         typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
         typer.echo(f"  Documents: {result.stats['documents']}")
