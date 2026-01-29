@@ -150,6 +150,59 @@ Note: Context-based MCP server integration is planned for future updates.
 - `chinvex_get_chunk`: Get full chunk text by ID
 - `chinvex_answer`: Grounded search returning evidence pack (chunks + citations) - no LLM synthesis
 
+## Digest & Brief
+
+Generate daily digests and session briefs from your indexed content.
+
+### Digest
+
+```powershell
+# Generate digest for last 24 hours
+chinvex digest generate --context MyProject --since 24h
+
+# Generate for specific date
+chinvex digest generate --context MyProject --date 2026-01-28
+
+# Push notification to ntfy
+chinvex digest generate --context MyProject --push ntfy
+```
+
+### Brief
+
+```powershell
+# Generate session brief
+chinvex brief --context MyProject
+
+# Save to file
+chinvex brief --context MyProject --output SESSION_BRIEF.md
+```
+
+### Memory Files
+
+Create `docs/memory/` in your repo:
+- `STATE.md`: Current objective, active work, blockers
+- `CONSTRAINTS.md`: Infrastructure limits, rules, key facts
+- `DECISIONS.md`: Append-only decision log
+
+See [Memory File Format](specs/P4_IMPLEMENTATION_SPEC.md#appendix-memory-file-format) for details.
+
+## Embedding Providers
+
+Chinvex supports multiple embedding providers:
+
+```powershell
+# Use Ollama (default)
+chinvex ingest --context MyProject
+
+# Use OpenAI
+chinvex ingest --context MyProject --embed-provider openai
+
+# Switch providers (requires rebuild)
+chinvex ingest --context MyProject --embed-provider openai --rebuild-index
+```
+
+Set `OPENAI_API_KEY` environment variable for OpenAI provider.
+
 ### Example tool calls
 
 `chinvex_search`:
