@@ -1,0 +1,527 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Chinvex Memory API",
+    "description": "Query personal knowledge base with grounded retrieval. Supports single-context and cross-context search.",
+    "version": "0.3.0"
+  },
+  "servers": [
+    {
+      "url": "https://chinvex.unkndlabs.com",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health",
+        "description": "Health check endpoint. No authentication required.\n\nReturns:\n    Status information including version and context count",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/evidence": {
+      "post": {
+        "tags": ["Evidence"],
+        "summary": "Get Evidence",
+        "description": "Search with grounding check. Primary endpoint for ChatGPT Actions.\n\nSupports single context (context field) or multi-context search (contexts field).\nUse contexts: 'all' to search all available contexts.\n\nReturns:\n    Evidence response with grounded status and chunks",
+        "operationId": "get_evidence_v1_evidence_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvidenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/search": {
+      "post": {
+        "tags": ["Search"],
+        "summary": "Search",
+        "description": "Raw hybrid search. Returns ranked chunks without grounding check.\n\nSupports single context (context field) or multi-context search (contexts field).\nUse contexts: 'all' to search all available contexts.",
+        "operationId": "search_v1_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/chunks": {
+      "post": {
+        "tags": ["Chunks"],
+        "summary": "Get Chunks",
+        "description": "Fetch specific chunks by ID.",
+        "operationId": "get_chunks_v1_chunks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChunksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunksResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/contexts": {
+      "get": {
+        "tags": ["Contexts"],
+        "summary": "List Available Contexts",
+        "description": "List available contexts. Respects allowlist. Use this to discover what contexts can be searched.",
+        "operationId": "list_available_contexts_v1_contexts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChunksRequest": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "chunk_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Chunk Ids"
+          }
+        },
+        "type": "object",
+        "required": ["context", "chunk_ids"],
+        "title": "ChunksRequest",
+        "description": "Request for /v1/chunks endpoint."
+      },
+      "ChunksResponse": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "chunks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Chunks"
+          }
+        },
+        "type": "object",
+        "required": ["context", "chunks"],
+        "title": "ChunksResponse",
+        "description": "Response from chunks endpoint."
+      },
+      "ContextInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": ["name", "aliases", "updated_at"],
+        "title": "ContextInfo",
+        "description": "Context information."
+      },
+      "ContextsResponse": {
+        "properties": {
+          "contexts": {
+            "items": {
+              "$ref": "#/components/schemas/ContextInfo"
+            },
+            "type": "array",
+            "title": "Contexts"
+          }
+        },
+        "type": "object",
+        "required": ["contexts"],
+        "title": "ContextsResponse",
+        "description": "Response from contexts endpoint."
+      },
+      "EvidenceRequest": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context",
+            "description": "Single context name (for backward compatibility)"
+          },
+          "contexts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Contexts",
+            "description": "Multiple context names as array, or 'all' to search all available contexts"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "k": {
+            "type": "integer",
+            "title": "K",
+            "default": 8
+          },
+          "source_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Types"
+          }
+        },
+        "type": "object",
+        "required": ["query"],
+        "title": "EvidenceRequest",
+        "description": "Request for /v1/evidence endpoint. Use 'context' for single-context or 'contexts' for multi-context search."
+      },
+      "EvidenceResponse": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "contexts_searched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Contexts Searched",
+            "description": "List of contexts that were searched (for multi-context queries)"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "grounded": {
+            "type": "boolean",
+            "title": "Grounded"
+          },
+          "evidence_pack": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Evidence Pack"
+          },
+          "retrieval_debug": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Retrieval Debug"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": ["query", "grounded", "evidence_pack", "retrieval_debug"],
+        "title": "EvidenceResponse",
+        "description": "Response from evidence endpoint."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "SearchRequest": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context",
+            "description": "Single context name (for backward compatibility)"
+          },
+          "contexts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Contexts",
+            "description": "Multiple context names as array, or 'all' to search all available contexts"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "k": {
+            "type": "integer",
+            "title": "K",
+            "default": 10
+          },
+          "source_types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Types"
+          },
+          "no_recency": {
+            "type": "boolean",
+            "title": "No Recency",
+            "default": false
+          },
+          "include_archive": {
+            "type": "boolean",
+            "title": "Include Archive",
+            "description": "Include archived documents in search results",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": ["query"],
+        "title": "SearchRequest",
+        "description": "Request for /v1/search endpoint. Use 'context' for single-context or 'contexts' for multi-context search."
+      },
+      "SearchResponse": {
+        "properties": {
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "contexts_searched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Contexts Searched",
+            "description": "List of contexts that were searched (for multi-context queries)"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "total_results": {
+            "type": "integer",
+            "title": "Total Results"
+          }
+        },
+        "type": "object",
+        "required": ["query", "results", "total_results"],
+        "title": "SearchResponse",
+        "description": "Response from search endpoint."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Enter your Chinvex API token"
+      }
+    }
+  },
+  "security": [
+    {
+      "HTTPBearer": []
+    }
+  ]
+}
