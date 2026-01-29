@@ -23,6 +23,18 @@ SKIP_DIRS = {
     "venv",
     ".codex",
     "__pycache__",
+    ".pytest_cache",
+    "htmlcov",
+    ".eggs",
+    "chroma",
+    ".worktrees",
+    ".claude",
+    ".pnpm-store",
+    ".pnpm",
+    ".vscode",
+    ".ruff_cache",
+    ".cursor",
+    ".qodo",
 }
 
 ALLOWED_EXTS = {".ts", ".tsx", ".js", ".jsx", ".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml"}
