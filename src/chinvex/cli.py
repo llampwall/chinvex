@@ -28,6 +28,10 @@ state_app.add_typer(state_note_app, name="note")
 watch_app = typer.Typer(help="Manage watch queries")
 app.add_typer(watch_app, name="watch")
 
+# Add digest subcommand group
+digest_app = typer.Typer(help="Generate digest reports")
+app.add_typer(digest_app, name="digest")
+
 
 def _load_config(config_path: Path):
     try:
@@ -785,6 +789,107 @@ def archive(
     else:
         print(f"Unknown action: {action}")
         raise typer.Exit(1)
+
+
+@digest_app.command("generate")
+def digest_generate_cmd(
+    context: str = typer.Option(..., "--context", "-c", help="Context name"),
+    since: str = typer.Option("24h", "--since", help="Time window (e.g., 24h, 7d)"),
+    date: str | None = typer.Option(None, "--date", help="Generate for specific date (YYYY-MM-DD)"),
+    push: str | None = typer.Option(None, "--push", help="Push notification (e.g., ntfy)"),
+) -> None:
+    """Generate digest for a context."""
+    from .context import load_context
+    from .context_cli import get_contexts_root
+    from .digest import generate_digest
+    from pathlib import Path
+    import re
+
+    contexts_root = get_contexts_root()
+    ctx = load_context(context, contexts_root)
+
+    # Parse since
+    match = re.match(r"(\d+)(h|d)", since)
+    if not match:
+        typer.secho(f"Invalid --since format: {since}", fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    amount, unit = match.groups()
+    since_hours = int(amount) if unit == "h" else int(amount) * 24
+
+    # Determine output date
+    if date:
+        from datetime import datetime
+        output_date = datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m-%d")
+    else:
+        from datetime import datetime
+        output_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Setup paths
+    context_dir = contexts_root / context
+    ingest_runs_log = context_dir / "ingest_runs.jsonl"
+    watch_history_log = context_dir / "watch_history.jsonl"
+
+    # Find STATE.md (walk up from context to find repo root)
+    state_md = None
+    search_dir = Path.cwd()
+    for _ in range(5):  # Max 5 levels up
+        candidate = search_dir / "docs" / "memory" / "STATE.md"
+        if candidate.exists():
+            state_md = candidate
+            break
+        search_dir = search_dir.parent
+
+    # Output paths
+    digests_dir = context_dir / "digests"
+    digests_dir.mkdir(parents=True, exist_ok=True)
+    output_md = digests_dir / f"{output_date}.md"
+    output_json = digests_dir / f"{output_date}.json"
+
+    generate_digest(
+        context_name=context,
+        ingest_runs_log=ingest_runs_log if ingest_runs_log.exists() else None,
+        watch_history_log=watch_history_log if watch_history_log.exists() else None,
+        state_md=state_md,
+        output_md=output_md,
+        output_json=output_json,
+        since_hours=since_hours
+    )
+
+    typer.secho(f"Digest generated: {output_md}", fg=typer.colors.GREEN)
+
+    # Push notification if requested
+    if push == "ntfy":
+        _push_ntfy_notification(context, output_md)
+
+
+def _push_ntfy_notification(context: str, digest_path: Path) -> None:
+    """Push notification to ntfy."""
+    import os
+    import requests
+
+    topic = os.getenv("CHINVEX_NTFY_TOPIC")
+    server = os.getenv("CHINVEX_NTFY_SERVER", "https://ntfy.sh")
+
+    if not topic:
+        typer.secho("Warning: CHINVEX_NTFY_TOPIC not set, skipping notification", fg=typer.colors.YELLOW)
+        return
+
+    # Read digest stats
+    content = digest_path.read_text()
+    # Extract simple summary
+    message = f"Chinvex digest ready for {context}"
+
+    try:
+        response = requests.post(
+            f"{server}/{topic}",
+            data=message,
+            headers={"Title": f"Chinvex Digest - {context}"}
+        )
+        response.raise_for_status()
+        typer.secho("Notification sent to ntfy", fg=typer.colors.GREEN)
+    except Exception as e:
+        typer.secho(f"Failed to send notification: {e}", fg=typer.colors.RED)
 
 
 if __name__ == "__main__":
