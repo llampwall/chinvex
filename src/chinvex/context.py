@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +16,7 @@ class ContextIncludes:
     chat_roots: list[Path]
     codex_session_roots: list[Path]
     note_roots: list[Path]
+    repo_excludes: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,7 @@ class ContextConfig:
             chat_roots=[Path(p) for p in includes_data.get("chat_roots", [])],
             codex_session_roots=[Path(p) for p in includes_data.get("codex_session_roots", [])],
             note_roots=[Path(p) for p in includes_data.get("note_roots", [])],
+            repo_excludes=includes_data.get("repo_excludes", []),
         )
 
         # Handle missing index field for old contexts
@@ -197,6 +199,7 @@ class ContextConfig:
                 "chat_roots": [str(p) for p in self.includes.chat_roots],
                 "codex_session_roots": [str(p) for p in self.includes.codex_session_roots],
                 "note_roots": [str(p) for p in self.includes.note_roots],
+                "repo_excludes": self.includes.repo_excludes,
             },
             "index": {
                 "sqlite_path": str(self.index.sqlite_path),

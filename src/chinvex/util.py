@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import os
@@ -46,12 +47,21 @@ def read_text_utf8(path: Path) -> str | None:
         return None
 
 
-def walk_files(root: Path) -> Iterable[Path]:
+def should_exclude(path: Path, root: Path, excludes: list[str]) -> bool:
+    """Check if path matches any exclude pattern relative to root."""
+    rel_path = path.relative_to(root).as_posix()
+    return any(fnmatch.fnmatch(rel_path, pattern) for pattern in excludes)
+
+
+def walk_files(root: Path, excludes: list[str] | None = None) -> Iterable[Path]:
+    """Walk files in root, skipping SKIP_DIRS and paths matching exclude patterns."""
+    excludes = excludes or []
+
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for filename in filenames:
             path = Path(dirpath) / filename
-            if path.suffix.lower() in ALLOWED_EXTS:
+            if path.suffix.lower() in ALLOWED_EXTS and not should_exclude(path, root, excludes):
                 yield path
 
 

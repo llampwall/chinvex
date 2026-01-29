@@ -484,7 +484,7 @@ def _ingest_repo_from_context(
     rechunk_only: bool = False,
 ) -> None:
     """Ingest a single repo with fingerprinting."""
-    for path in walk_files(repo_path):
+    for path in walk_files(repo_path, excludes=ctx.includes.repo_excludes):
         text = read_text_utf8(path)
         if text is None:
             continue
