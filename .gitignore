@@ -34,3 +34,4 @@ start_gateway.ps1
 # OS
 Thumbs.db
 Desktop.ini
+.claude/
