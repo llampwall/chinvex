@@ -97,7 +97,9 @@ def _conditional_embed(
     - Generate all embeddings normally
     """
     if not rechunk_only:
-        return embedder.embed(texts)
+        new_embeddings = embedder.embed(texts)
+        stats["embeddings_new"] += len(new_embeddings)
+        return new_embeddings
 
     # Rechunk optimization path
     embeddings: list[list[float]] = []
