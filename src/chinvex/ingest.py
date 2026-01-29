@@ -192,6 +192,7 @@ def _ingest_repo(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
         metas: list[dict] = []
         for chunk in chunks:
             chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+            ck = chunk_key(chunk.text)
             cmeta = {
                 "doc_id": doc_id,
                 "ordinal": chunk.ordinal,
@@ -211,6 +212,7 @@ def _ingest_repo(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
                     chunk.text,
                     updated_at,
                     dump_json(cmeta),
+                    ck,  # chunk_key
                 )
             )
             fts_rows.append((chunk_id, chunk.text))
@@ -299,6 +301,7 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
         metas: list[dict] = []
         for chunk in chunks:
             chunk_id = sha256_text(f"{doc_id}|{chunk.ordinal}|{sha256_text(chunk.text)}")
+            ck = chunk_key(chunk.text)
             cmeta = {
                 "doc_id": doc_id,
                 "ordinal": chunk.ordinal,
@@ -319,6 +322,7 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
                     chunk.text,
                     exported_at,
                     dump_json(cmeta),
+                    ck,  # chunk_key
                 )
             )
             fts_rows.append((chunk_id, chunk.text))
