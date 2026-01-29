@@ -150,10 +150,6 @@ class Storage:
             )
             """
         )
-        # Create archived index for new databases
-        self._execute(
-            "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(archived)"
-        )
         self._execute(
             """
             CREATE TABLE IF NOT EXISTS chunks(
@@ -169,10 +165,6 @@ class Storage:
               chunk_key TEXT
             )
             """
-        )
-        # Create chunk_key index for new databases
-        self._execute(
-            "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_key ON chunks(chunk_key)"
         )
         self._execute(
             """
@@ -219,7 +211,39 @@ class Storage:
         self._execute(
             "CREATE INDEX IF NOT EXISTS idx_fingerprints_status ON source_fingerprints(last_status)"
         )
+
+        # Ensure columns exist in existing tables
+        self._ensure_columns()
+
         self.conn.commit()
+
+    def _ensure_columns(self) -> None:
+        """Add missing columns to existing tables for schema evolution."""
+        # Check if archived columns exist in documents table
+        cur = self._execute("PRAGMA table_info(documents)")
+        columns = {row[1] for row in cur.fetchall()}
+
+        if "archived" not in columns:
+            self._execute("ALTER TABLE documents ADD COLUMN archived INTEGER DEFAULT 0")
+        if "archived_at" not in columns:
+            self._execute("ALTER TABLE documents ADD COLUMN archived_at TEXT")
+
+        # Create index on archived column if it doesn't exist
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(archived)"
+        )
+
+        # Check if chunk_key exists in chunks table
+        cur = self._execute("PRAGMA table_info(chunks)")
+        columns = {row[1] for row in cur.fetchall()}
+
+        if "chunk_key" not in columns:
+            self._execute("ALTER TABLE chunks ADD COLUMN chunk_key TEXT")
+
+        # Create index on chunk_key if it doesn't exist
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_key ON chunks(chunk_key)"
+        )
 
     def _check_fts5(self) -> None:
         try:
