@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import typer
@@ -39,6 +40,10 @@ app.add_typer(sync_app, name="sync")
 # Add hook subcommand group
 hook_app = typer.Typer(help="Git hook management")
 app.add_typer(hook_app, name="hook")
+
+# Add bootstrap subcommand group
+bootstrap_app = typer.Typer(help="Bootstrap installation commands")
+app.add_typer(bootstrap_app, name="bootstrap")
 
 
 def _load_config(config_path: Path):
@@ -1136,6 +1141,63 @@ def status(
         output = read_global_status(contexts_root)
 
     print(output)
+
+
+# ================================
+# Bootstrap Commands
+# ================================
+
+@bootstrap_app.command()
+def install(
+    contexts_root: Path = typer.Option(
+        Path("P:/ai_memory/contexts"),
+        help="Root directory for contexts"
+    ),
+    indexes_root: Path = typer.Option(
+        Path("P:/ai_memory/indexes"),
+        help="Root directory for indexes"
+    ),
+    ntfy_topic: str = typer.Option(..., prompt=True, help="ntfy.sh topic for notifications"),
+    morning_brief_time: str = typer.Option("07:00", help="Morning brief time (HH:MM)"),
+    profile_path: Path = typer.Option(
+        Path(os.path.expandvars(r"%USERPROFILE%\Documents\PowerShell\Microsoft.PowerShell_profile.ps1")),
+        help="PowerShell profile path"
+    )
+):
+    """Install Chinvex bootstrap components."""
+    from .bootstrap.cli import bootstrap_install
+    bootstrap_install(contexts_root, indexes_root, ntfy_topic, profile_path, morning_brief_time)
+
+
+@bootstrap_app.command()
+def status():
+    """Show bootstrap installation status."""
+    from .bootstrap.cli import bootstrap_status
+
+    status = bootstrap_status()
+
+    print("Chinvex Bootstrap Status:")
+    print(f"  Watcher: {'✓ Running' if status['watcher_running'] else '✗ Stopped'}")
+    print(f"  Sweep Task: {'✓ Installed' if status['sweep_task_installed'] else '✗ Not installed'}")
+    print(f"  Brief Task: {'✓ Installed' if status['brief_task_installed'] else '✗ Not installed'}")
+    print(f"  Env Vars: {'✓ Set' if status['env_vars_set'] else '✗ Not set'}")
+
+
+@bootstrap_app.command()
+def uninstall(
+    profile_path: Path = typer.Option(
+        Path(os.path.expandvars(r"%USERPROFILE%\Documents\PowerShell\Microsoft.PowerShell_profile.ps1")),
+        help="PowerShell profile path"
+    )
+):
+    """Uninstall Chinvex bootstrap components."""
+    confirm = typer.confirm("This will remove scheduled tasks, env vars, and profile changes. Continue?")
+    if not confirm:
+        print("Uninstall cancelled.")
+        return
+
+    from .bootstrap.cli import bootstrap_uninstall
+    bootstrap_uninstall(profile_path)
 
 
 if __name__ == "__main__":
