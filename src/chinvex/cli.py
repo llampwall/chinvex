@@ -48,6 +48,7 @@ def _load_config(config_path: Path):
 def ingest_cmd(
     context: str | None = typer.Option(None, "--context", "-c", help="Context name to ingest"),
     config: Path | None = typer.Option(None, "--config", help="Path to old config.json (deprecated)"),
+    paths: str | None = typer.Option(None, "--paths", help="Comma-separated paths for delta ingest (optional)"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
     rechunk_only: bool = typer.Option(False, "--rechunk-only", help="Rechunk only, reuse embeddings when possible"),
     embed_provider: str | None = typer.Option(None, "--embed-provider", help="Embedding provider: ollama|openai"),
@@ -140,20 +141,42 @@ def ingest_cmd(
                 chat_roots=chat_root if chat_root else None
             )
             ctx = load_context(context, contexts_root)
-        result = ingest_context(
-            ctx,
-            ollama_host_override=ollama_host,
-            rechunk_only=rechunk_only,
-            embed_provider=embed_provider,
-            rebuild_index=rebuild_index
-        )
 
-        typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
-        typer.echo(f"  Documents: {result.stats['documents']}")
-        typer.echo(f"  Chunks: {result.stats['chunks']}")
-        typer.echo(f"  Skipped: {result.stats['skipped']}")
-        if 'embeddings_reused' in result.stats:
-            typer.echo(f"  Embeddings: {result.stats['embeddings_reused']} reused, {result.stats['embeddings_new']} new")
+        # Check if delta ingest (--paths) or full ingest
+        if paths:
+            from .ingest import ingest_delta
+
+            # Parse paths
+            path_list = [Path(p.strip()) for p in paths.split(",") if p.strip()]
+            typer.echo(f"Delta ingest: {len(path_list)} files for context {context}")
+
+            result = ingest_delta(
+                ctx,
+                path_list,
+                ollama_host_override=ollama_host,
+                embed_provider=embed_provider
+            )
+
+            typer.secho(f"Delta ingestion complete for context '{context}':", fg=typer.colors.GREEN)
+            typer.echo(f"  Files processed: {result.stats.get('files_processed', 0)}")
+            typer.echo(f"  Documents: {result.stats['documents']}")
+            typer.echo(f"  Chunks: {result.stats['chunks']}")
+            typer.echo(f"  Skipped: {result.stats['skipped']}")
+        else:
+            result = ingest_context(
+                ctx,
+                ollama_host_override=ollama_host,
+                rechunk_only=rechunk_only,
+                embed_provider=embed_provider,
+                rebuild_index=rebuild_index
+            )
+
+            typer.secho(f"Ingestion complete for context '{context}':", fg=typer.colors.GREEN)
+            typer.echo(f"  Documents: {result.stats['documents']}")
+            typer.echo(f"  Chunks: {result.stats['chunks']}")
+            typer.echo(f"  Skipped: {result.stats['skipped']}")
+            if 'embeddings_reused' in result.stats:
+                typer.echo(f"  Embeddings: {result.stats['embeddings_reused']} reused, {result.stats['embeddings_new']} new")
     else:
         # Old config-based ingestion (deprecated)
         typer.secho("Warning: --config is deprecated. Use --context instead.", fg=typer.colors.YELLOW)
