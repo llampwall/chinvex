@@ -76,6 +76,10 @@ def check_context_lock_held(contexts_root: Path, context_name: str) -> bool:
         True if lock is held, False if available
     """
     lock_file = contexts_root / context_name / ".ingest.lock"
+
+    # Ensure directory exists
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+
     try:
         lock = try_acquire_sync_lock(lock_file)
         lock.release()

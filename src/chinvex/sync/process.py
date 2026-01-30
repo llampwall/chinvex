@@ -140,16 +140,57 @@ class WatcherProcess:
         """
         Trigger ingest for a context.
 
-        For now, logs the intent. Full implementation in Task 9.
+        Spawns background chinvex ingest process.
         """
+        import sys
+        from .locks import check_context_lock_held
+
+        # Check if ingest lock is held
+        if check_context_lock_held(self.contexts_root, context_name):
+            log.info(f"Skipping ingest for {context_name}: lock held")
+            # Don't clear accumulator - will retry later
+            return
+
+        # Check if over limit BEFORE clearing
+        is_over_limit = accumulator.is_over_limit()
         changes = accumulator.get_and_clear()
 
-        if accumulator.is_over_limit():
+        # Build command
+        python_exe = sys.executable
+        cmd = [python_exe, "-m", "chinvex.cli", "ingest", "--context", context_name]
+
+        if is_over_limit:
+            # Full ingest (no --paths)
             log.info(f"Triggering FULL ingest for {context_name} (>500 paths)")
-            # TODO (Task 9): Call chinvex ingest --context {context_name}
         else:
+            # Delta ingest with specific paths
             log.info(f"Triggering delta ingest for {context_name} ({len(changes)} files)")
-            # TODO (Task 9): Call chinvex ingest --context {context_name} --paths {changes}
+            paths_str = ",".join(str(p) for p in changes)
+            cmd.extend(["--paths", paths_str])
+
+        # Spawn background process
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    cmd,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            log.info(f"Ingest process spawned for {context_name}")
+
+        except Exception as e:
+            log.error(f"Failed to spawn ingest for {context_name}: {e}")
+            # Re-add changes to accumulator for retry
+            for path in changes:
+                accumulator.add_change(path)
 
     def run(self):
         """Start watching and run main loop."""
