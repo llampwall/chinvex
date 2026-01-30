@@ -353,6 +353,7 @@ def _ingest_chat(source: SourceConfig, storage: Storage, embedder: OllamaEmbedde
 def ingest_context(
     ctx: ContextConfig,
     *,
+    contexts_root: Path | None = None,
     ollama_host_override: str | None = None,
     rechunk_only: bool = False,
     embed_provider: str | None = None,
@@ -618,7 +619,11 @@ def ingest_context(
                 stats["watches_pending_hits"] = watches_pending_hits
 
                 # Write STATUS.json
-                context_dir = db_path.parent.parent / ctx.name
+                if contexts_root:
+                    context_dir = contexts_root / ctx.name
+                else:
+                    # Fallback to old behavior (derive from db_path)
+                    context_dir = db_path.parent.parent / ctx.name
                 context_dir.mkdir(parents=True, exist_ok=True)
 
                 # Read stale_after_hours from context config
@@ -1118,7 +1123,7 @@ def _ingest_codex_sessions_from_context(
         stats["chunks"] += len(chunks)
 
 
-def ingest_delta(ctx, paths, *, ollama_host_override=None, embed_provider=None):
+def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, embed_provider=None):
     """Delta ingest: process only specific paths."""
     from datetime import timezone
     from .embedding_providers import get_provider
@@ -1221,7 +1226,11 @@ def ingest_delta(ctx, paths, *, ollama_host_override=None, embed_provider=None):
             stats["watches_pending_hits"] = watches_pending_hits
 
             # Write STATUS.json
-            context_dir = db_path.parent.parent / ctx.name
+            if contexts_root:
+                context_dir = contexts_root / ctx.name
+            else:
+                # Fallback to old behavior (derive from db_path)
+                context_dir = db_path.parent.parent / ctx.name
             context_dir.mkdir(parents=True, exist_ok=True)
 
             stale_after_hours = 6  # Default

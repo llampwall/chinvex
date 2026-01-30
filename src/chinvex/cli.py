@@ -162,6 +162,7 @@ def ingest_cmd(
             result = ingest_delta(
                 ctx,
                 path_list,
+                contexts_root=contexts_root,
                 ollama_host_override=ollama_host,
                 embed_provider=embed_provider
             )
@@ -174,6 +175,7 @@ def ingest_cmd(
         else:
             result = ingest_context(
                 ctx,
+                contexts_root=contexts_root,
                 ollama_host_override=ollama_host,
                 rechunk_only=rechunk_only,
                 embed_provider=embed_provider,
