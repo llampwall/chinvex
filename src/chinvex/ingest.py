@@ -567,7 +567,70 @@ def ingest_context(
                     if archived_count > 0:
                         print(f"Archived {archived_count} docs (older than {ctx.archive.age_threshold_days}d)")
 
+                # Get watch stats before closing storage
+                from .watch_storage import WatchStorage
+                watch_storage = WatchStorage(db_path)
+                watches = watch_storage.list_watches()
+                watches_active = len([w for w in watches if w["active"]])
+                watches_pending_hits = sum(w["pending_hits"] for w in watches)
+                watch_storage.close()
+
                 storage.close()
+
+                # Write STATUS.json after ingest
+                from .status import write_status_json
+
+                # Build sources list
+                sources = []
+                for repo in ctx.includes.repos:
+                    sources.append({
+                        "type": "repo",
+                        "path": str(repo),
+                        "watching": True
+                    })
+                for chat_root in ctx.includes.chat_roots:
+                    sources.append({
+                        "type": "chat",
+                        "path": str(chat_root),
+                        "watching": False
+                    })
+                if ctx.includes.codex_session_roots:
+                    for codex_root in ctx.includes.codex_session_roots:
+                        sources.append({
+                            "type": "codex_session",
+                            "path": str(codex_root),
+                            "watching": False
+                        })
+
+                # Build embedding info
+                if ctx.embedding:
+                    embedding_info = {
+                        "provider": ctx.embedding.provider,
+                        "model": ctx.embedding.model or "default",
+                        "dimensions": 1024  # TODO: get from embedder
+                    }
+                else:
+                    embedding_info = {
+                        "provider": "ollama",
+                        "model": ctx.ollama.embed_model,
+                        "dimensions": 1024
+                    }
+
+                # Add last_sync and watch stats to stats
+                stats["last_sync"] = now_iso()
+                stats["watches_active"] = watches_active
+                stats["watches_pending_hits"] = watches_pending_hits
+
+                # Write STATUS.json
+                context_dir = db_path.parent.parent / ctx.name
+                context_dir.mkdir(parents=True, exist_ok=True)
+
+                # Read stale_after_hours from context config
+                stale_after_hours = 6  # Default
+                if hasattr(ctx, 'constraints') and ctx.constraints:
+                    stale_after_hours = ctx.constraints.get('stale_after_hours', 6)
+
+                write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours)
 
                 result = IngestRunResult(
                     run_id=run_id,
@@ -1117,8 +1180,64 @@ def ingest_delta(ctx, paths, *, ollama_host_override=None, embed_provider=None):
                 _ingest_single_file(path, ctx, storage, provider, vectors, stats)
             
             finished_at = datetime.now(timezone.utc)
+
+            # Get watch stats before closing storage
+            from .watch_storage import WatchStorage
+            watch_storage = WatchStorage(db_path)
+            watches = watch_storage.list_watches()
+            watches_active = len([w for w in watches if w["active"]])
+            watches_pending_hits = sum(w["pending_hits"] for w in watches)
+            watch_storage.close()
+
             storage.close()
-            
+
+            # Write STATUS.json after delta ingest
+            from .status import write_status_json
+
+            # Build sources list
+            sources = []
+            for repo in ctx.includes.repos:
+                sources.append({
+                    "type": "repo",
+                    "path": str(repo),
+                    "watching": True
+                })
+            for chat_root in ctx.includes.chat_roots:
+                sources.append({
+                    "type": "chat",
+                    "path": str(chat_root),
+                    "watching": False
+                })
+
+            # Build embedding info
+            if ctx.embedding:
+                embedding_info = {
+                    "provider": ctx.embedding.provider,
+                    "model": ctx.embedding.model or "default",
+                    "dimensions": 1024
+                }
+            else:
+                embedding_info = {
+                    "provider": "ollama",
+                    "model": ctx.ollama.embed_model,
+                    "dimensions": 1024
+                }
+
+            # Add last_sync and watch stats to stats
+            stats["last_sync"] = now_iso()
+            stats["watches_active"] = watches_active
+            stats["watches_pending_hits"] = watches_pending_hits
+
+            # Write STATUS.json
+            context_dir = db_path.parent.parent / ctx.name
+            context_dir.mkdir(parents=True, exist_ok=True)
+
+            stale_after_hours = 6  # Default
+            if hasattr(ctx, 'constraints') and ctx.constraints:
+                stale_after_hours = ctx.constraints.get('stale_after_hours', 6)
+
+            write_status_json(context_dir, stats, sources, embedding_info, stale_after_hours)
+
             return IngestRunResult(
                 run_id="delta",
                 context=ctx.name,
