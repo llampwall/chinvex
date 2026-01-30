@@ -52,44 +52,68 @@ chinvex sync reconcile-sources  # Update watcher to match context.json sources
 - Path set cleared after successful ingest (or on failure, retained for retry)
 
 **Exclude list (CRITICAL - prevents infinite loops):**
+
+Patterns use fnmatch glob syntax, matched against paths relative to watched root:
+
 ```
 # Chinvex outputs (will cause ingest storm if watched)
 contexts/**/STATUS.json
 contexts/**/ingest_runs.jsonl
 contexts/**/digests/**
-P:\ai_memory\MORNING_BRIEF.md
-P:\ai_memory\GLOBAL_STATUS.md
-*_BRIEF.md
-SESSION_BRIEF.md
+**/MORNING_BRIEF.md
+**/GLOBAL_STATUS.md
+**/*_BRIEF.md
+**/SESSION_BRIEF.md
 
 # Per-repo chinvex artifacts
-.chinvex/**
-docs/memory/**   # Memory files are human-edited only
+**/.chinvex/**
+**/docs/memory/**   # Memory files are human-edited only
 
 # Standard ignores
-.git/
-node_modules/
-__pycache__/
-*.pyc
-.venv/
-venv/
+**/.git/**
+**/node_modules/**
+**/__pycache__/**
+**/*.pyc
+**/.venv/**
+**/venv/**
 
-# Chinvex internals
+# Chinvex internals (absolute paths)
 ~/.chinvex/*.log
 ~/.chinvex/*.pid
 ~/.chinvex/*.json
 ~/.chinvex/*.jsonl
 ```
 
+**Matching rules:**
+- `**` matches any directory depth
+- `*` matches any characters within a path segment
+- Patterns are case-insensitive on Windows
+- Use `fnmatch` library for matching
+
 **Critical rule:** Sync daemon only watches **external sources** (repos, inbox paths), never context directories themselves. The status example showing `P:\ai_memory\contexts\Chinvex` as a source is **wrong** - that should never be a watched source.
 
 **Memory files rule:** `docs/memory/` files (STATE.md, CONSTRAINTS.md, DECISIONS.md) are **human-edited only**. Generators never write into watched trees. If automation needs to update state, it writes to `contexts/X/` artifacts, not repo-local memory files.
 
 **Concurrency rules (CRITICAL - prevents thrashing):**
-- Single-writer lock per context (file lock on `contexts/X/.ingest.lock`)
+- Single-writer lock per context: OS-level file lock (portalocker) on `contexts/X/.ingest.lock`
 - If ingest running and new fs events arrive → set `pending=true`, do ONE rerun after completion
 - Never run two ingests for the same context simultaneously
-- Sweep skips contexts currently ingesting
+- Sweep skips contexts currently ingesting (checks lock without blocking)
+
+**Multi-context repo handling:**
+If a repo is a source for multiple contexts (e.g., monorepo):
+- Each context gets its own ingest triggered by file changes
+- Ingests run sequentially, not parallel (each acquires its own context lock)
+- Git hook: if repo feeds N contexts, hook runs N sequential ingests
+- Watcher: coalesces by context, so each context gets one debounced ingest
+
+**Lock implementation:** Use `portalocker` library:
+```python
+import portalocker
+with portalocker.Lock(lock_path, timeout=0, fail_when_locked=True):
+    # do ingest
+```
+`timeout=0` means non-blocking - if lock held, skip or queue.
 
 **Daemon management:**
 - Runs as background process (not Windows service - keep it simple)
@@ -98,11 +122,19 @@ venv/
 - Logs to `~/.chinvex/sync.log`
 - Sweep checks heartbeat to detect zombie process
 
+**Startup mechanism (two triggers):**
+1. **Login trigger:** Task Scheduler task runs `chinvex sync start` at user login
+2. **Sweep backup:** Scheduled sweep runs `chinvex sync ensure-running` every 30 min
+
+Both are belt-and-suspenders. Login trigger is primary, sweep is recovery.
+
 **Atomic start semantics (prevents double-start race):**
-- `sync start`: Acquire file lock on `~/.chinvex/sync.lock`, check if PID file exists and process alive → refuse if already running, else start and write PID
+- `sync start`: Acquire OS-level file lock (portalocker) on `~/.chinvex/sync.lock`, check if PID file exists and process alive → refuse if already running, else start and write PID
 - `sync ensure-running`: Same lock, atomic "check+start" - only starts if not running
-- `sync stop`: Acquire lock, send SIGTERM, wait for exit, remove PID file
+- `sync stop`: Acquire lock, send termination signal, wait for exit, remove PID file
 - Lock held only during start/stop operations, not while daemon runs
+
+**Lock implementation:** Use `portalocker` library for OS-level file locks (works on Windows and Linux). Not just file existence checks.
 
 #### 1.2 Git Post-Commit Hook (belt-and-suspenders)
 
@@ -112,6 +144,11 @@ For repos with git, trigger ingest on commit.
 ```bash
 chinvex hook install --context Chinvex --repo C:\Code\chinvex
 ```
+
+**Conflict handling:**
+- If `.git/hooks/post-commit` exists → backup to `.git/hooks/post-commit.bak`, then replace
+- If backup already exists → append timestamp `.git/hooks/post-commit.bak.20260129`
+- Print warning: "Existing hook backed up to .git/hooks/post-commit.bak"
 
 **Generated hook (Windows-safe):**
 
@@ -245,9 +282,12 @@ A special context called `_global` for stuff that doesn't belong elsewhere.
 
 **Constraint enforcement details:**
 - "Oldest" = by `updated_at` timestamp at chunk level
-- "Archive" = set `archived=true` in SQLite + exclude from search via query filter (P3 archive tier)
+- "Archive" = set `archived=1` in SQLite `chunks` table (column added in P3 schema v2)
+- Archived chunks excluded from search via `WHERE archived=0` filter
 - Enforcement: `chinvex archive --context _global --apply-constraints` runs during sweep
 - Order: archive by age first (>90 days), then by count (oldest beyond 10k)
+
+**Schema note:** P3 added `archived INTEGER DEFAULT 0` column to chunks table. If upgrading from earlier version, run `chinvex db migrate` or column is auto-added on first archive operation.
 
 **Config:** `contexts/_global/context.json`
 ```json
@@ -433,14 +473,21 @@ Scheduled task that runs at configured time (default 7:00 AM local).
 
 **Script:** `scripts/morning_brief.ps1`
 ```powershell
+param(
+    [Parameter(Mandatory=$true)][string]$ContextsRoot,
+    [Parameter(Mandatory=$true)][string]$NtfyTopic,
+    [string]$NtfyServer = "https://ntfy.sh",
+    [string]$OutputPath = "P:\ai_memory\MORNING_BRIEF.md"
+)
+
 # Generate briefs for all active contexts
-$briefs = chinvex brief --all-contexts --format json | ConvertFrom-Json
+$briefs = chinvex brief --all-contexts --contexts-root $ContextsRoot --format json | ConvertFrom-Json
 
 # Build notification
 $stale = $briefs | Where-Object { $_.status -eq "stale" }
 $watchHits = ($briefs | ForEach-Object { $_.watch_hits } | Measure-Object -Sum).Sum
 
-$title = "☀️ Dual Nature Morning Brief"
+$title = "Dual Nature Morning Brief"
 $body = @"
 Contexts: $($briefs.Count) ($($stale.Count) stale)
 Watch hits: $watchHits pending
@@ -450,29 +497,41 @@ if ($stale.Count -gt 0) {
     $body += "`nStale: $($stale.context -join ', ')"
 }
 
-# Push via ntfy
-$ntfyTopic = $env:CHINVEX_NTFY_TOPIC
-$ntfyServer = $env:CHINVEX_NTFY_SERVER ?? "https://ntfy.sh"
+# Truncate body if too long (ntfy limit)
+if ($body.Length -gt 500) {
+    $body = $body.Substring(0, 497) + "..."
+}
 
-Invoke-RestMethod -Uri "$ntfyServer/$ntfyTopic" -Method Post -Body $body -Headers @{
+# Push via ntfy
+Invoke-RestMethod -Uri "$NtfyServer/$NtfyTopic" -Method Post -Body $body -Headers @{
     "Title" = $title
     "Priority" = "default"
     "Tags" = "brain,clipboard"
 }
 
 # Also write to file for Claude session start
-chinvex brief --all-contexts --output P:\ai_memory\MORNING_BRIEF.md
+chinvex brief --all-contexts --contexts-root $ContextsRoot --output $OutputPath
 ```
+
+**Task Scheduler config:**
+```
+pwsh -NoProfile -File scripts/morning_brief.ps1 `
+    -ContextsRoot "P:\ai_memory\contexts" `
+    -NtfyTopic "chinvex-alerts" `
+    -NtfyServer "https://ntfy.sh"
+```
+
+All config passed explicitly - no env var reads in scripts (unreliable in non-interactive context).
 
 **Notification content:**
 ```
-☀️ Dual Nature Morning Brief
+Dual Nature Morning Brief
 Contexts: 4 (1 stale)
 Watch hits: 3 pending
 Stale: Godex
 ```
 
-Tapping the notification could open the full brief (future: deep link).
+Tapping the notification opens browser to ntfy.sh topic (or self-hosted server).
 
 #### 3.2 Watch Hit Push
 
@@ -482,16 +541,19 @@ Triggered immediately after ingest if watches matched. Coalesced per ingest run.
 ```python
 if watch_hits:
     # Coalesce all hits from this ingest run into one notification
+    queries = ', '.join(h.query for h in watch_hits[:3])
+    if len(watch_hits) > 3:
+        queries += f" +{len(watch_hits) - 3} more"
     push_ntfy(
-        title="🎯 Watch hit",
-        body=f"{context}: {len(watch_hits)} hits ({', '.join(h.query for h in watch_hits[:3])})",
+        title="Watch hit",
+        body=f"{context}: {len(watch_hits)} hits ({queries})",
         priority="default"
     )
 ```
 
 **Notification:**
 ```
-🎯 Watch hit
+Watch hit
 Chinvex: 2 hits (retry logic, embeddings)
 ```
 
@@ -499,14 +561,15 @@ Chinvex: 2 hits (retry logic, embeddings)
 
 #### 3.3 Stale Context Push
 
-If scheduled sweep detects a context hasn't synced in 6+ hours.
+If scheduled sweep detects a context hasn't synced within its configured threshold.
 
 **In sweep logic:**
 ```python
 for ctx in contexts:
-    if ctx.last_sync > timedelta(hours=6):
+    threshold = ctx.config.get("freshness", {}).get("stale_after_hours", 6)
+    if hours_since_sync(ctx) > threshold:
         push_ntfy(
-            title="⚠️ Stale context",
+            title="Stale context",
             body=f"{ctx.name}: last sync {humanize(ctx.last_sync)}",
             priority="low"
         )
@@ -514,13 +577,19 @@ for ctx in contexts:
 
 **Notification:**
 ```
-⚠️ Stale context
-Godex: last sync 6 hours ago
+Stale context
+Godex: last sync 6h ago
 ```
 
 **Dedup:** Only push once per context per day (track in `~/.chinvex/push_log.jsonl`).
 
-**Emoji note:** Emojis (☀️ 🎯 ⚠️) used in ntfy notifications only. CLI output uses ASCII equivalents for terminal safety.
+**Push log schema:**
+```json
+{"timestamp": "2026-01-29T14:00:00Z", "context": "Godex", "type": "stale", "date": "2026-01-29"}
+```
+Dedup key: `(context, type, date)`. Same context+type on same calendar day = skip.
+
+**Emoji note:** All notifications use plain ASCII text (no emojis). Windows terminal and some ntfy clients handle emojis inconsistently.
 
 #### 3.4 Ntfy Configuration
 
@@ -560,8 +629,36 @@ function dual {
         "brief"  { chinvex brief --all-contexts }
         "track"  { 
             $repo = if ($arg) { Resolve-Path $arg } else { Get-Location }
-            # Name = lowercase leaf, collision handling done by chinvex
-            chinvex context create-from-repo --repo $repo --auto-name --add-to-sync
+            # Name = lowercase folder leaf, normalized
+            $name = (Split-Path $repo -Leaf).ToLower() -replace '[^a-z0-9-]', '-'
+            
+            # Check if context exists
+            $existing = chinvex context list --format json | ConvertFrom-Json | Where-Object { $_.name -eq $name }
+            
+            if ($existing) {
+                # Check if same repo
+                $existingRepo = $existing.sources | Where-Object { $_.type -eq "repo" } | Select-Object -First 1
+                if ($existingRepo -and (Resolve-Path $existingRepo.path) -eq $repo) {
+                    Write-Host "Already tracking $repo in context '$name'"
+                    return
+                }
+                # Different repo, need unique name
+                $i = 2
+                while ($true) {
+                    $newName = "$name-$i"
+                    $check = chinvex context list --format json | ConvertFrom-Json | Where-Object { $_.name -eq $newName }
+                    if (-not $check) { $name = $newName; break }
+                    $i++
+                }
+            }
+            
+            # Create context and add source
+            chinvex ingest --context $name --repo $repo
+            
+            # Add to sync watcher if running
+            chinvex sync reconcile-sources 2>$null
+            
+            Write-Host "Tracking $repo in context '$name'"
         }
         "status" { chinvex status }
         default  { Write-Host "Usage: dual [brief|track|status]" }
@@ -581,11 +678,12 @@ dual status         # Show system health
 dn brief            # Short form
 ```
 
-**`create-from-repo` behavior:**
-- Name = lowercase folder leaf
+**`dual track` behavior:**
+- Name = lowercase folder leaf, non-alphanumeric replaced with `-`
+- If name exists pointing to same repo (resolved path match) → no-op
 - If name exists pointing elsewhere → `name-2`, `name-3`, etc.
-- If name exists pointing to same repo → no-op (already tracked)
-- `--add-to-sync` automatically registers with sync watcher
+- Uses `chinvex ingest --context X --repo Y` (P4.1 inline context creation)
+- Triggers `sync reconcile-sources` to update watcher
 
 #### 4.2 Session Start Protocol (already exists)
 
@@ -772,15 +870,46 @@ This only works if Bootstrapping Completion is rock solid. Data must be fresh an
 
 ---
 
+## Implementation Notes
+
+**Gametime decisions (handle during coding, not spec):**
+
+| Area | Guidance |
+|------|----------|
+| Malformed context.json | Skip with warning, continue to next context |
+| Git hook edge cases | Initial commit (no HEAD~1): skip diff, run full ingest. Merge commits: use `git diff HEAD^ --name-only` |
+| Hook failure modes | All failures silent except lock conflicts (log to ~/.chinvex/hook_errors.log) |
+| Notification truncation | Max 500 chars for ntfy body |
+| Humanize timestamps | Use "Xh ago" format (e.g., "6h ago", "2d ago") |
+| Delta ingest failure | Log error, do NOT fall back to full ingest (could mask the problem) |
+| Debounce max duration | If files change continuously for >5 minutes, force ingest anyway |
+| Path accumulator on crash | Lost (in-memory only). Sweep will catch up within 30 min. |
+| Continuous debounce | Cap at 5 min total debounce time, then force ingest regardless |
+| Status "recent ingests" | Show last 5 runs |
+| "Delta since yesterday" | Literal 24h ago, not calendar day |
+| Watch query storage | Already exists: `contexts/X/watch.json` |
+| Profile doesn't exist | Bootstrap installer creates it with just the dual function |
+| Stale context push threshold | Respects per-context `stale_after_hours`, not hardcoded 6h |
+| ntfy.sh privacy | Warn during bootstrap install that context names may be visible; suggest self-host for sensitive data |
+| Brief vs digest cost | `brief --all-contexts` reads STATUS.json, does NOT regenerate digests |
+
+**Dependencies to add:**
+```
+portalocker>=2.0.0   # OS-level file locks
+watchdog>=3.0.0      # File system events
+```
+
+---
+
 ## Locked Design Decisions
 
 | Question | Decision |
 |----------|----------|
-| Watcher architecture | Long-running Python process (watchdog), started at login via Task Scheduler. Heartbeat file for health check. Not a Windows service. |
+| Watcher architecture | Long-running Python process (watchdog), started at login via Task Scheduler + sweep ensure-running backup. Heartbeat file for health check. Not a Windows service. |
 | Sweep frequency | 30 minutes. Watcher is primary; sweep is recovery. |
 | Stale threshold | Default 6 hours, per-context override via `freshness.stale_after_hours` |
-| `_global` constraints | 10K chunks / 90 days. Oldest by `updated_at`. Archive = flag in SQLite. Enforced during sweep. |
-| Morning brief time | Configurable via `CHINVEX_MORNING_BRIEF_TIME` env var (default 07:00) |
+| `_global` constraints | 10K chunks / 90 days. Oldest by `updated_at`. Archive = `archived=1` column in SQLite chunks table. Enforced during sweep. |
+| Morning brief time | Configurable via CLI arg to scheduled task (default 07:00) |
 | Push dedup | Stale alerts: 1x per context per day. Watch hits: no dedup, but coalesced per ingest run. |
 | Alias name | `dual` primary, `dn` as shorter alias |
 | Command namespace | `chinvex sync` for file watcher daemon. `chinvex watch` reserved for watch-queries. |
@@ -789,6 +918,9 @@ This only works if Bootstrapping Completion is rock solid. Data must be fresh an
 | Watched sources | External sources only (repos, inbox). Never context directories. |
 | Memory files | Human-edited only. Generators never write to `docs/memory/`. |
 | Task config | Pass explicitly via CLI args, not env vars (non-interactive reliability). |
-| Emojis | ntfy notifications only. CLI uses ASCII. |
+| Emojis | ntfy notifications only (ASCII text, no emoji - Windows terminal safe). CLI uses ASCII. |
 | Hook python path | Resolved at install: repo venv → `py -3` → `CHINVEX_PYTHON` → PATH `python` |
-| Sync start atomicity | File lock on `sync.lock` during start/stop. `ensure-running` is atomic check+start. |
+| Sync start atomicity | OS-level file lock via portalocker on `sync.lock` during start/stop. `ensure-running` is atomic check+start. |
+| Exclude patterns | fnmatch glob syntax with `**` for recursive matching |
+| Hook conflicts | Backup existing hook to `.bak`, then replace |
+| Multi-context repos | Sequential ingests per context, each with own lock |
