@@ -205,6 +205,9 @@ class WatcherProcess:
         for observer in self._observers:
             observer.start()
 
+        # Write initial heartbeat immediately
+        self._write_heartbeat()
+
         # Heartbeat counter (write every 30 iterations = 30s)
         heartbeat_counter = 0
         HEARTBEAT_INTERVAL = 30
