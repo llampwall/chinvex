@@ -59,7 +59,7 @@ def hook_install_cmd(context: str | None = None) -> None:
     generate_post_commit_hook(repo_root, git_dir, python_path, context)
 
     typer.secho(
-        f"✓ Post-commit hook installed for context '{context}'",
+        f"[OK] Post-commit hook installed for context '{context}'",
         fg=typer.colors.GREEN
     )
     typer.echo(f"Hook location: {git_dir / 'hooks' / 'post-commit'}")
@@ -98,7 +98,7 @@ def hook_uninstall_cmd() -> None:
         removed = True
 
     if removed:
-        typer.secho("✓ Hook uninstalled", fg=typer.colors.GREEN)
+        typer.secho("[OK] Hook uninstalled", fg=typer.colors.GREEN)
     else:
         typer.echo("No chinvex hook found")
 

@@ -48,6 +48,11 @@ You hit this today: MCP search failed because Ollama wasn't running, but the ind
    - `chinvex status` shows embedding provider for each context
    - Gateway health endpoint reports which embedding provider is active
 
+5. **OpenAI as default provider**
+   - New contexts default to OpenAI embeddings (text-embedding-3-small)
+   - Ollama remains available via explicit `--embed-provider ollama`
+   - Rationale: 45x faster, consistent quality, cost negligible for personal use
+
 ### Acceptance
 
 - [ ] Query embedding always matches index embedding space
@@ -230,55 +235,13 @@ Initial retrieval returns top-K by vector similarity, but relevance ordering is 
 
 ---
 
-## P5.5 Operational Fixes
-
-### P5.5.1 Watcher Terminal Focus Stealing
-
-**Problem:** Watcher pops up a terminal window every ~30 minutes that steals keyboard focus. Interrupts work.
-
-**Investigation:**
-- Likely the scheduled sweep or a subprocess spawning visibly
-- Need to find which process and add `-WindowStyle Hidden` or equivalent
-
-**Fix:** Ensure all scheduled tasks and background processes run without visible windows.
-
-### P5.5.2 Cloudflared Tunnel Timeout
-
-**Problem:** QUIC connection times out during idle periods:
-```
-error="timeout: no recent network activity" connIndex=1 event=0 ip=198.41.192.107
-```
-
-Results in gateway being unreachable until tunnel reconnects.
-
-**Investigation:**
-- Cloudflared QUIC protocol drops connection after idle period
-- May need keepalive configuration or fallback to HTTP/2
-
-**Fix options:**
-- Configure cloudflared keepalive settings
-- Switch from QUIC to HTTP/2 transport
-- Add reconnect logic or health check that triggers reconnect
-
-### Acceptance
-
-- [ ] No terminal windows steal focus during normal operation
-- [ ] Gateway remains reachable after extended idle periods (>1 hour)
-
-**Verification tests:**
-- P5.5.1: Run scheduled tasks for 4 hours, count focus-stealing events (must be 0)
-- P5.5.2: Leave gateway idle for 2 hours, then query - must succeed without manual intervention
-
----
-
 ## Implementation Order
 
 1. **P5.1 Embedding Integrity** - Critical fix, unblocks trust in retrieval
 2. **P5.2.2 + P5.2.3 Brief/Morning Brief** - Immediate daily value, verifies freshness signals
-3. **P5.5 Operational Fixes** - Quality of life, quick wins
-4. **P5.2.1 + P5.2.4 Memory Maintainer + Startup Hook** - Automation, requires brief to be working
-5. **P5.3 Eval Suite** - Required before reranker work
-6. **P5.4 Reranker** - Quality improvement, requires eval to validate
+3. **P5.2.1 + P5.2.4 Memory Maintainer + Startup Hook** - Automation, requires brief to be working
+4. **P5.3 Eval Suite** - Required before reranker work
+5. **P5.4 Reranker** - Quality improvement, requires eval to validate
 
 ---
 
@@ -306,6 +269,7 @@ These decisions are locked for P5. Don't revisit.
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
+| Default embedding provider | **OpenAI (text-embedding-3-small)** | 45x faster than Ollama, consistent quality, negligible cost |
 | Mixed-space cross-context search | **Refuse by default** | Trust by default; solve merge scoring in P6+ |
 | Active context window | **7 days** | Matches brief/digest cadence |
 | Morning brief context cap | **Top 5 by activity** | Prevents noisy repos from dominating |

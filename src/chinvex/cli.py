@@ -1179,10 +1179,10 @@ def status():
     status = bootstrap_status()
 
     print("Chinvex Bootstrap Status:")
-    print(f"  Watcher: {'✓ Running' if status['watcher_running'] else '✗ Stopped'}")
-    print(f"  Sweep Task: {'✓ Installed' if status['sweep_task_installed'] else '✗ Not installed'}")
-    print(f"  Brief Task: {'✓ Installed' if status['brief_task_installed'] else '✗ Not installed'}")
-    print(f"  Env Vars: {'✓ Set' if status['env_vars_set'] else '✗ Not set'}")
+    print(f"  Watcher: {'[OK] Running' if status['watcher_running'] else '[X] Stopped'}")
+    print(f"  Sweep Task: {'[OK] Installed' if status['sweep_task_installed'] else '[X] Not installed'}")
+    print(f"  Brief Task: {'[OK] Installed' if status['brief_task_installed'] else '[X] Not installed'}")
+    print(f"  Env Vars: {'[OK] Set' if status['env_vars_set'] else '[X] Not set'}")
 
 
 @bootstrap_app.command()

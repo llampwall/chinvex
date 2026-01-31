@@ -124,7 +124,7 @@ def _generate_task_xml(
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
+    <Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
@@ -133,7 +133,7 @@ def _generate_task_xml(
   <Actions>
     <Exec>
       <Command>pwsh</Command>
-      <Arguments>-NoProfile -ExecutionPolicy Bypass -File "{script_path}" {args_str}</Arguments>
+      <Arguments>-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{script_path}" {args_str}</Arguments>
     </Exec>
   </Actions>
   <Principals>
@@ -368,7 +368,7 @@ def _generate_morning_brief_xml(
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
+    <Hidden>true</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
@@ -377,7 +377,7 @@ def _generate_morning_brief_xml(
   <Actions>
     <Exec>
       <Command>pwsh</Command>
-      <Arguments>-NoProfile -ExecutionPolicy Bypass -File "{script_path}" {args_str}</Arguments>
+      <Arguments>-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{script_path}" {args_str}</Arguments>
     </Exec>
   </Actions>
   <Principals>

@@ -136,7 +136,7 @@ def bootstrap_install(
     if result.returncode != 0:
         print(f"    Warning: Could not start watcher: {result.stderr}")
 
-    print("\n✓ Bootstrap installation complete!")
+    print("\n[OK] Bootstrap installation complete!")
     print(f"\nEnvironment variables set:")
     print(f"  CHINVEX_CONTEXTS_ROOT={contexts_root}")
     print(f"  CHINVEX_INDEXES_ROOT={indexes_root}")
@@ -203,6 +203,6 @@ def bootstrap_uninstall(profile_path: Path) -> None:
     print("  4. Removing environment variables...")
     unset_env_vars()
 
-    print("\n✓ Bootstrap uninstall complete!")
+    print("\n[OK] Bootstrap uninstall complete!")
     print("\nNote: Context data and indexes were not deleted.")
     print("To remove data: manually delete CHINVEX_CONTEXTS_ROOT and CHINVEX_INDEXES_ROOT")
