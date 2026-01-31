@@ -125,3 +125,124 @@ def test_detect_contexts_cap_at_top_5(tmp_path):
 
     # Context5 is still within 7 days but not in the top 5, not returned as stale
     assert len(stale) == 0
+
+
+def test_parse_state_md_objective_and_actions(tmp_path):
+    """Test extracting Current Objective and Next Actions from STATE.md."""
+    from chinvex.morning_brief import parse_state_md
+
+    state_md = tmp_path / "STATE.md"
+    state_md.write_text("""# State
+
+## Current Objective
+P5 implementation - reliability and retrieval quality
+
+## Active Work
+- Brief generation updates
+- Morning brief overhaul
+
+## Blockers
+None
+
+## Next Actions
+- [ ] Update CONSTRAINTS.md extraction
+- [ ] Add Recent rollup to DECISIONS.md
+- [ ] Implement active/stale detection
+- [ ] Parse STATE.md for objectives
+- [ ] Format morning brief with ntfy
+
+## Out of Scope (for now)
+- Multi-user auth
+- Smart scheduling agent
+""")
+
+    objective, actions = parse_state_md(state_md)
+
+    assert objective == "P5 implementation - reliability and retrieval quality"
+    assert len(actions) == 5
+    assert "Update CONSTRAINTS.md extraction" in actions
+    assert "Format morning brief with ntfy" in actions
+
+
+def test_parse_state_md_max_5_actions(tmp_path):
+    """Test Next Actions are capped at 5 bullets."""
+    from chinvex.morning_brief import parse_state_md
+
+    state_md = tmp_path / "STATE.md"
+    state_md.write_text("""# State
+
+## Current Objective
+Test objective
+
+## Next Actions
+- [ ] Action 1
+- [ ] Action 2
+- [ ] Action 3
+- [ ] Action 4
+- [ ] Action 5
+- [ ] Action 6
+- [ ] Action 7
+- [ ] Action 8
+""")
+
+    objective, actions = parse_state_md(state_md, max_actions=5)
+
+    assert objective == "Test objective"
+    assert len(actions) == 5
+    assert "Action 1" in actions
+    assert "Action 5" in actions
+    assert "Action 6" not in actions
+
+
+def test_parse_state_md_missing_sections(tmp_path):
+    """Test graceful handling when sections are missing."""
+    from chinvex.morning_brief import parse_state_md
+
+    state_md = tmp_path / "STATE.md"
+    state_md.write_text("""# State
+
+## Active Work
+- Some work
+
+## Blockers
+None
+""")
+
+    objective, actions = parse_state_md(state_md)
+
+    assert objective is None
+    assert actions == []
+
+
+def test_parse_state_md_file_not_exists(tmp_path):
+    """Test handling when STATE.md doesn't exist."""
+    from chinvex.morning_brief import parse_state_md
+
+    state_md = tmp_path / "nonexistent.md"
+
+    objective, actions = parse_state_md(state_md)
+
+    assert objective is None
+    assert actions == []
+
+
+def test_parse_state_md_multiline_objective(tmp_path):
+    """Test objective extraction takes only first line."""
+    from chinvex.morning_brief import parse_state_md
+
+    state_md = tmp_path / "STATE.md"
+    state_md.write_text("""# State
+
+## Current Objective
+First line is the objective
+Second line should be ignored
+Third line too
+
+## Next Actions
+- [ ] Action 1
+""")
+
+    objective, actions = parse_state_md(state_md)
+
+    assert objective == "First line is the objective"
+    assert len(actions) == 1

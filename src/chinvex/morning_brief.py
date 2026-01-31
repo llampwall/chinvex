@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -71,3 +72,73 @@ def detect_active_stale_contexts(
     active = active[:max_active]
 
     return active, stale
+
+
+def parse_state_md(
+    state_md_path: Path,
+    max_actions: int = 5
+) -> tuple[str | None, list[str]]:
+    """
+    Parse STATE.md to extract Current Objective and Next Actions.
+
+    Args:
+        state_md_path: Path to STATE.md file
+        max_actions: Maximum number of actions to return
+
+    Returns:
+        (objective, actions) where objective is a string or None,
+        and actions is a list of action strings (without checkbox prefix)
+    """
+    if not state_md_path.exists():
+        return None, []
+
+    try:
+        content = state_md_path.read_text()
+    except OSError:
+        return None, []
+
+    lines = content.split("\n")
+
+    objective = None
+    actions = []
+
+    in_objective_section = False
+    in_actions_section = False
+
+    for line in lines:
+        # Detect sections
+        if line.strip() == "## Current Objective":
+            in_objective_section = True
+            in_actions_section = False
+            continue
+
+        if line.strip() == "## Next Actions":
+            in_objective_section = False
+            in_actions_section = True
+            continue
+
+        # Stop at next section
+        if line.startswith("## "):
+            in_objective_section = False
+            in_actions_section = False
+            continue
+
+        # Extract objective (first non-empty line after header)
+        if in_objective_section and not objective:
+            stripped = line.strip()
+            if stripped:
+                objective = stripped
+                in_objective_section = False  # Only take first line
+
+        # Extract actions (checkbox items)
+        if in_actions_section:
+            # Match "- [ ] Action text" or "- [x] Action text"
+            match = re.match(r"^-\s*\[[ xX]\]\s*(.+)", line.strip())
+            if match:
+                action_text = match.group(1).strip()
+                actions.append(action_text)
+
+                if len(actions) >= max_actions:
+                    break
+
+    return objective, actions
