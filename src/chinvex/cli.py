@@ -1322,5 +1322,65 @@ def update_memory_cmd(
             typer.echo("No changes to commit.")
 
 
+@app.command()
+def eval(
+    context: str = typer.Option(..., "--context", "-c", help="Context name to evaluate"),
+    k: int | None = typer.Option(None, "--k", help="Override K value for all queries")
+):
+    """Run evaluation suite against golden queries.
+
+    Loads golden queries for the specified context and runs retrieval evaluation.
+    Reports hit rate, MRR, and latency metrics.
+    Compares to baseline and fails if performance regresses.
+    """
+    from .eval_runner import run_evaluation
+    from .eval_baseline import load_baseline_metrics, compare_to_baseline
+
+    try:
+        # Run evaluation
+        typer.echo(f"Running evaluation for context: {context}")
+        metrics = run_evaluation(context_name=context, k=k)
+
+        # Display results
+        typer.echo(f"\nEvaluation Results:")
+        typer.echo(f"  Hit Rate@5: {metrics['hit_rate'] * 100:.1f}%")
+        typer.echo(f"  MRR: {metrics['mrr']:.3f}")
+        typer.echo(f"  Avg Latency: {metrics['avg_latency_ms']:.1f}ms")
+        typer.echo(f"  Passed: {metrics['passed']}/{metrics['total']}")
+        typer.echo(f"  Failed: {metrics['failed']}/{metrics['total']}")
+
+        # Compare to baseline
+        try:
+            from pathlib import Path
+            baseline_file = Path("tests/eval/baseline_metrics.json")
+            baseline = load_baseline_metrics(baseline_file, context)
+
+            if baseline:
+                current_metrics = type('EvalMetrics', (), {
+                    'hit_rate': metrics['hit_rate'],
+                    'mrr': metrics['mrr'],
+                    'avg_latency_ms': metrics['avg_latency_ms']
+                })()
+
+                comparison = compare_to_baseline(current_metrics, baseline)
+
+                typer.echo(f"\nBaseline Comparison:")
+                typer.echo(f"  Baseline Hit Rate: {baseline.hit_rate * 100:.1f}%")
+                typer.echo(f"  Change: {comparison.hit_rate_change * 100:+.1f}%")
+
+                if comparison.passed:
+                    typer.echo("  Status: PASS")
+                else:
+                    typer.echo(f"  Status: REGRESSION (below baseline threshold)")
+                    raise typer.Exit(1)
+
+        except FileNotFoundError:
+            typer.echo("\nNo baseline metrics found. Run with --save-baseline to create.")
+
+    except Exception as e:
+        typer.echo(f"Error running evaluation: {e}", err=True)
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
