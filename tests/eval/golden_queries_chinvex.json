@@ -1,0 +1,152 @@
+{
+  "queries": [
+    {
+      "query": "How does hybrid search combine lexical and vector results?",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/search.py", "src/chinvex/scoring.py"],
+      "anchor": "blend_scores",
+      "k": 5
+    },
+    {
+      "query": "chromadb batch size limit for embeddings",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/ingest.py"],
+      "anchor": "5461",
+      "k": 5
+    },
+    {
+      "query": "what embedding providers are supported",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/embed.py", "src/chinvex/config.py"],
+      "k": 5
+    },
+    {
+      "query": "CLI command to search a context",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/cli.py"],
+      "anchor": "search",
+      "k": 5
+    },
+    {
+      "query": "How to run ingestion for a context",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/cli.py", "src/chinvex/ingest.py"],
+      "k": 5
+    },
+    {
+      "query": "FTS5 configuration and tokenizer settings",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/storage.py"],
+      "anchor": "tokenize",
+      "k": 5
+    },
+    {
+      "query": "chunk size and overlap settings for code ingestion",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/chunking.py"],
+      "k": 5
+    },
+    {
+      "query": "OpenAI embedding model configuration",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/embed.py"],
+      "anchor": "text-embedding-3-small",
+      "k": 5
+    },
+    {
+      "query": "How does cross-context search work",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/search.py"],
+      "k": 5
+    },
+    {
+      "query": "Gateway API endpoint for search",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/gateway/endpoints/search.py"],
+      "k": 5
+    },
+    {
+      "query": "MCP server integration with Claude Code",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex_mcp/server.py"],
+      "k": 5
+    },
+    {
+      "query": "score normalization for hybrid retrieval",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/scoring.py"],
+      "anchor": "normalize",
+      "k": 5
+    },
+    {
+      "query": "default weights for lexical vs vector search",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/search.py", "src/chinvex/scoring.py"],
+      "k": 5
+    },
+    {
+      "query": "archive functionality to exclude old chunks",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/storage.py", "src/chinvex/search.py"],
+      "k": 5
+    },
+    {
+      "query": "git integration for repo ingestion",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/ingest.py"],
+      "k": 5
+    },
+    {
+      "query": "file watcher daemon for automatic syncing",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/cli.py"],
+      "anchor": "sync",
+      "k": 5
+    },
+    {
+      "query": "How to generate a session brief",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/cli.py", "src/chinvex/brief.py"],
+      "k": 5
+    },
+    {
+      "query": "context.json schema and required fields",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/config.py"],
+      "k": 5
+    },
+    {
+      "query": "storage schema for chunks table",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/storage.py"],
+      "anchor": "CREATE TABLE",
+      "k": 5
+    },
+    {
+      "query": "VectorStore initialization with ChromaDB",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/vectors.py"],
+      "k": 5
+    },
+    {
+      "query": "How to detect mixed embedding providers across contexts",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/search.py"],
+      "anchor": "mixed",
+      "k": 5
+    },
+    {
+      "query": "P5 implementation spec for memory automation",
+      "context": "Chinvex",
+      "expected_files": ["specs/P5a_IMPLEMENTATION_SPEC.md", "specs/P5b_IMPLEMENTATION_SPEC.md"],
+      "k": 5
+    },
+    {
+      "query": "chinvex status command output format",
+      "context": "Chinvex",
+      "expected_files": ["src/chinvex/cli.py"],
+      "anchor": "status",
+      "k": 5
+    }
+  ]
+}
