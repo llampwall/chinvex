@@ -362,6 +362,54 @@ def hybrid_search_from_context(
     return results
 
 
+def _detect_mixed_embedding_providers(contexts: list[str], contexts_root) -> None:
+    """
+    Detect if contexts use different embedding providers and raise error if so.
+
+    Args:
+        contexts: List of context names
+        contexts_root: Root directory for contexts (Path object)
+
+    Raises:
+        ValueError: If contexts use different embedding providers
+    """
+    from .context import load_context
+
+    providers = {}
+    for ctx_name in contexts:
+        try:
+            ctx = load_context(ctx_name, contexts_root)
+            # Determine provider from embedding config or default to ollama
+            if ctx.embedding:
+                provider = ctx.embedding.provider
+                model = ctx.embedding.model or "unknown"
+            else:
+                # Legacy contexts default to ollama
+                provider = "ollama"
+                model = ctx.ollama.embed_model
+
+            providers[ctx_name] = (provider, model)
+        except Exception:
+            # Skip contexts that fail to load
+            continue
+
+    # Check if all providers are the same
+    if not providers:
+        return  # No contexts loaded successfully
+
+    unique_providers = set(p[0] for p in providers.values())
+    if len(unique_providers) > 1:
+        # Build detailed error message
+        provider_details = ", ".join(
+            f"{ctx}={prov}" for ctx, (prov, _) in sorted(providers.items())
+        )
+        raise ValueError(
+            f"Cross-context search with mixed embedding providers is not allowed. "
+            f"Contexts have different providers: {provider_details}. "
+            f"Use --context to search a single context, or ensure all contexts use the same embedding provider."
+        )
+
+
 def search_multi_context(
     contexts: list[str] | str,
     query: str,
@@ -402,6 +450,9 @@ def search_multi_context(
     max_contexts = 10  # TODO: Make configurable
     if len(contexts) > max_contexts:
         contexts = contexts[:max_contexts]
+
+    # Detect mixed embedding providers before search
+    _detect_mixed_embedding_providers(contexts, contexts_root)
 
     # Per-context cap: fetch more than k to ensure good merged results
     k_per_context = min(k * 2, 20)
