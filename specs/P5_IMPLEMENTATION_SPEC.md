@@ -53,6 +53,10 @@ You hit this today: MCP search failed because Ollama wasn't running, but the ind
    - Ollama remains available via explicit `--embed-provider ollama`
    - Rationale: 45x faster, consistent quality, cost negligible for personal use
 
+6. **Documentation**
+   - Update README.md: explain embedding provider selection, default behavior, how to check/change
+   - Document `chinvex status` output showing embedding provider per context
+
 ### Acceptance
 
 - [ ] Query embedding always matches index embedding space
@@ -98,12 +102,18 @@ Implement `chinvex update-memory --context X` per PROJECT_MEMORY_SPEC_DRAFT.md:
 - **Review mode (default)**: write changes, print diff, don't commit
 - **Commit mode (`--commit`)**: auto-commit with `docs: update memory files`
 
+**Documentation:**
+- Update README.md: explain `chinvex update-memory` command, modes, bounded inputs, when to run
+
 #### P5.2.2 Brief Generation Update
 
 Update `chinvex brief` to match PROJECT_MEMORY_SPEC_DRAFT.md:
 
 - CONSTRAINTS.md: Infrastructure + Rules + Hazards sections only (not "until first ##")
 - DECISIONS.md: Recent rollup + entries from last 7 days (not just date-parsed entries)
+
+**Documentation:**
+- Update README.md: explain what `chinvex brief` includes, memory file requirements
 
 #### P5.2.3 Morning Brief Overhaul
 
@@ -142,14 +152,27 @@ Generated: YYYY-MM-DD HH:MM
 - Skip contexts with no STATE.md or no recent activity
 - Ops metrics become a small header, not the whole brief
 
-#### P5.2.4 Startup Hook Verification
+**Documentation:**
+- Update README.md: explain new morning brief structure, what makes a context "active", ntfy push content
 
-Ensure CLAUDE.md/AGENTS.md contains:
-```markdown
-## Session Start Protocol
-On session start, run: `chinvex brief --context <context-name>`
-Read the output before proceeding with any work.
-```
+#### P5.2.4 Startup Hook Installation
+
+During `chinvex ingest`, install Claude Code startup hook:
+
+1. Detect repo root from context config
+2. Create/update `<repo>/.claude/settings.json`:
+   ```json
+   {
+     "hooks": {
+       "startup": ["chinvex brief --context <context-name>"]
+     }
+   }
+   ```
+3. Merge with existing settings (don't clobber other config)
+4. `--no-claude-hook` flag to skip installation
+5. Document in README.md: explain hook behavior, `--no-claude-hook` flag, and how to manually remove
+
+**Rationale:** Ingestion is when Chinvex "claims" a repo - natural time to install the hook. Guarantees context exists when hook runs.
 
 ### Acceptance
 
@@ -160,7 +183,9 @@ Read the output before proceeding with any work.
 - [ ] `chinvex brief` outputs correct CONSTRAINTS sections per new spec
 - [ ] Morning brief includes project objectives and next actions
 - [ ] Morning brief ntfy push includes top 1-2 objectives, not just counts
-- [ ] Chinvex CLAUDE.md has startup hook instruction
+- [ ] Chinvex ingest installs `.claude/settings.json` hook in repo
+- [ ] Existing settings.json merged, not clobbered
+- [ ] `--no-claude-hook` skips installation
 
 ---
 
@@ -190,6 +215,9 @@ No way to know if retrieval is working well. Changes to chunking, weighting, or 
 3. **Query logging (optional)**
    - Log every search: query, chunks returned, scores, context
    - For debugging and future golden query candidates
+
+4. **Documentation**
+   - Update README.md: explain `chinvex eval` command, golden query format, how to add queries
 
 ### Acceptance
 
@@ -226,6 +254,9 @@ Initial retrieval returns top-K by vector similarity, but relevance ordering is 
    - Max 50 candidates to reranker (truncate if more)
    - Latency budget: 2s max for rerank step
    - **Fallback**: If provider unavailable, skip rerank with warning (don't fail search)
+
+5. **Documentation**
+   - Update README.md: explain `--rerank` flag, provider configuration, latency expectations
 
 ### Acceptance
 

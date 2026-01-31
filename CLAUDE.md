@@ -1,75 +1,53 @@
 # CLAUDE.md
 
 ## Project
-Chinvex - hybrid retrieval engine for personal knowledge
 
-## Implementation Spec
-**Read README.md** for an overview of the how this currrently runs
-**P0_IMPLEMENTATION_SPEC.md** Is the bible for this sprint. It defines all contracts, schemas, and behavior. Do not invent beyond it.
+Chinvex - hybrid retrieval engine for personal knowledge management.
 
 ## Language
-Python
+
+Python 3.12
 
 ## Structure
-everything is in /src/chinvex besides the mcp server, which is in /src/chinvex_mcp
+
+- `/src/chinvex` - core library and CLI
+- `/src/chinvex_mcp` - MCP server for Claude integration
+- `/specs` - implementation specs (P0-P5)
+- `/scripts` - PowerShell automation (bootstrap, scheduled tasks)
+- `/tests` - pytest test suite
 
 ## Commands
-- `npm run build` / `pip install -e .` (whatever applies)
-- `npm test` / `pytest`
 
-## Current State
+```bash
+pip install -e .          # Install in dev mode
+pytest                    # Run tests
+chinvex --help            # CLI help
+```
 
-**Artifacts**
+## Key CLI Commands
 
-* **Hybrid index** per “project”:
+```bash
+chinvex ingest --context <name>              # Ingest sources into context
+chinvex search --context <name> "query"      # Search a context
+chinvex brief --context <name>               # Generate session brief
+chinvex status                               # Show all contexts status
+chinvex sync start                           # Start file watcher daemon
+```
 
-  * **SQLite FTS5** for lexical search (`hybrid.db`)
-  * **Chroma** for vector search (`chroma/`)
-* **Sources ingested**
+## Current Sprint
 
-  * `repo` (e.g. `C:\Code\streamside`)
-  * `chat` exports (e.g. `P:\ai_memory\projects\Twitch\chats\*.json/.md`)
-* **Embedding**
+See `/specs/` for implementation specs. Look at the highest phase number (P0, P1, etc.) for current work.
 
-  * Ollama embedding model: `mxbai-embed-large`
-  * Remote Ollama host supported (e.g. `http://skynet:11434`)
-  * Chunk-size fallback exists for “input length exceeds context length” style failures.
-* **CLI**
+## Architecture
 
-  * `chinvex ingest --config … [--ollama-host …]`
-  * `chinvex search --config … "query" [--source repo|chat]`
-* **Local MCP server wrapper**
-
-  * Tools exposed (names may vary depending on the wrapper):
-
-    * `chinvex_search`
-    * `chinvex_get_chunk`
-  * Verified: can do search → select a chunk_id → get_chunk → answer “using only that chunk”.
-
-**Robustness patches already applied**
-
-* SQLite WAL + retry/backoff on transient “disk I/O error”
-* “single writer” ingest lock (`hybrid.db.lock`) to prevent concurrent ingest collisions (and to cover Chroma writes)
-
-## What still hurts / why we care
-
-  * “make it feel like memory,” not like “manual grep with extra steps”
-  * reduced configuration friction
-  * quality controls (grounding guarantees, citations, reranking)
-  * time-awareness (chat exports often have missing timestamps)
-  * **Codex session chats** are not ingested yet (and they matter a lot)
-
-## Session Start Protocol
-
-On session start, run: `chinvex brief --context Chinvex`
-
-Read the output before proceeding with any work. This loads current state,
-constraints, recent decisions, and activity into your context.
-
-**Why:** Ensures Claude starts with awareness of project state rather than
-guessing or relying on stale information.
+- **Hybrid index**: SQLite FTS5 (lexical) + ChromaDB (vector)
+- **Embeddings**: OpenAI text-embedding-3-small (default)
+- **Gateway**: HTTP API for search, served via PM2 + cloudflared tunnel
+- **Automation**: File watcher daemon + scheduled sweep + git hooks
 
 ## Rules
+
 - Follow the spec exactly
 - Ask before adding dependencies
-- Delete-then-insert for chunk upserts (see spec §5)
+- Delete-then-insert for chunk upserts
+- OpenAI embeddings by default (Ollama available via `--embed-provider ollama`)
