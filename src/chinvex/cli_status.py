@@ -15,6 +15,8 @@ class ContextStatus:
     is_stale: bool
     hours_since_sync: float
     watcher_running: bool
+    embedding_provider: str  # NEW FIELD
+    embedding_model: str | None = None  # NEW FIELD
 
 
 def format_status_output(contexts: list[ContextStatus], watcher_running: bool) -> str:
@@ -30,15 +32,28 @@ def format_status_output(contexts: list[ContextStatus], watcher_running: bool) -
     """
     lines = ["# Chinvex Global Status", ""]
 
-    # Table header
-    lines.append("| Context | Chunks | Last Sync | Status |")
-    lines.append("|---------|--------|-----------|--------|")
+    # Table header (UPDATED to include Embedding column)
+    lines.append("| Context | Chunks | Last Sync | Embedding | Status |")
+    lines.append("|---------|--------|-----------|-----------|--------|")
 
     # Rows
     for ctx in contexts:
         status_icon = "[OK]" if not ctx.is_stale else "[STALE]"
         hours_str = f"{int(ctx.hours_since_sync)}h ago"
-        lines.append(f"| {ctx.name:<15} | {ctx.chunks:<6} | {hours_str:<9} | {status_icon:<6} |")
+
+        # Format embedding info
+        if ctx.embedding_model:
+            embed_str = f"{ctx.embedding_provider}/{ctx.embedding_model}"
+        else:
+            embed_str = ctx.embedding_provider
+
+        # Truncate if too long
+        if len(embed_str) > 18:
+            embed_str = embed_str[:15] + "..."
+
+        lines.append(
+            f"| {ctx.name:<15} | {ctx.chunks:<6} | {hours_str:<9} | {embed_str:<17} | {status_icon:<6} |"
+        )
 
     lines.append("")
     lines.append(f"Watcher: {'Running' if watcher_running else 'Stopped'}")
@@ -82,6 +97,8 @@ def generate_status_from_contexts(contexts_root: Path) -> str:
             continue
 
         status_json = ctx_dir / "STATUS.json"
+        context_json = ctx_dir / "context.json"  # NEW: Read context.json for embedding info
+
         if not status_json.exists():
             continue
 
@@ -89,13 +106,31 @@ def generate_status_from_contexts(contexts_root: Path) -> str:
             data = json.loads(status_json.read_text(encoding="utf-8"))
             freshness = data.get("freshness", {})
 
+            # NEW: Read embedding provider from context.json
+            embedding_provider = "ollama"  # Default
+            embedding_model = None
+
+            if context_json.exists():
+                try:
+                    ctx_data = json.loads(context_json.read_text(encoding="utf-8"))
+                    if "embedding" in ctx_data:
+                        embedding_provider = ctx_data["embedding"].get("provider", "ollama")
+                        embedding_model = ctx_data["embedding"].get("model")
+                    # If no embedding field, check ollama config for model name
+                    elif "ollama" in ctx_data:
+                        embedding_model = ctx_data["ollama"].get("embed_model")
+                except (json.JSONDecodeError, KeyError):
+                    pass  # Use defaults
+
             statuses.append(ContextStatus(
                 name=ctx_dir.name,
                 chunks=data.get("chunks", 0),
                 last_sync=data.get("last_sync", "unknown"),
                 is_stale=freshness.get("is_stale", False),
                 hours_since_sync=freshness.get("hours_since_sync", 0),
-                watcher_running=False  # Determined globally
+                watcher_running=False,  # Determined globally
+                embedding_provider=embedding_provider,
+                embedding_model=embedding_model
             ))
         except (json.JSONDecodeError, KeyError):
             continue
