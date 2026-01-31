@@ -202,6 +202,47 @@ def load_embedding_config_from_contexts() -> dict:
         }
 
 
+def validate_embedding_provider_available(provider: str, model: str) -> None:
+    """
+    Validate that the specified embedding provider is available and can be used.
+
+    For OpenAI: checks that OPENAI_API_KEY is set
+    For Ollama: checks that service is reachable
+
+    Raises:
+        RuntimeError: If provider is configured but not available
+        ValueError: If provider is unknown
+    """
+    import os
+    import requests
+
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                f"OpenAI API key required for query embedding. "
+                f"Gateway index uses {provider} ({model}), but OPENAI_API_KEY is not set. "
+                f"Set the environment variable or switch to a different embedding provider."
+            )
+        # API key is set - assume it's valid (will fail at query time if not)
+
+    elif provider == "ollama":
+        # Check Ollama service is reachable
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        try:
+            response = requests.get(f"{ollama_host}/api/tags", timeout=2)
+            response.raise_for_status()
+        except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
+            raise RuntimeError(
+                f"Ollama service unavailable. "
+                f"Gateway index uses {provider} ({model}), but service at {ollama_host} is not responding. "
+                f"Start Ollama or switch to a different embedding provider."
+            ) from e
+
+    else:
+        raise ValueError(f"Unknown embedding provider: {provider}")
+
+
 # Startup event for warmup
 @app.on_event("startup")
 async def startup_warmup():
@@ -210,6 +251,22 @@ async def startup_warmup():
 
     # Load embedding config from contexts
     embedding_config = load_embedding_config_from_contexts()
+
+    # Validate provider is available before accepting queries
+    try:
+        validate_embedding_provider_available(
+            embedding_config["embedding_provider"],
+            embedding_config["embedding_model"]
+        )
+        logger.info(
+            f"Validated embedding provider: {embedding_config['embedding_provider']} "
+            f"({embedding_config['embedding_model']})"
+        )
+    except (RuntimeError, ValueError) as e:
+        # CRITICAL: Gateway cannot serve queries without valid embedding provider
+        logger.error(f"Embedding provider validation failed: {e}")
+        logger.error("Gateway startup aborted. Fix embedding configuration and restart.")
+        raise
 
     # Set gateway state for /health endpoint
     from chinvex.gateway.endpoints.health import set_gateway_state

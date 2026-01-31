@@ -1,9 +1,10 @@
 """Tests for embedding integrity enforcement in gateway."""
 
 import pytest
+import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from chinvex.gateway.app import load_embedding_config_from_contexts
+from chinvex.gateway.app import load_embedding_config_from_contexts, validate_embedding_provider_available
 from chinvex.index_meta import IndexMeta
 from datetime import datetime
 
@@ -107,3 +108,47 @@ def test_load_embedding_config_detects_mixed_providers():
     assert config["embedding_model"] == "text-embedding-3-small"
     assert config["contexts_loaded"] == 2
     assert config["mixed_providers"] is True
+
+
+def test_validate_embedding_provider_openai_with_key():
+    """Should pass validation when OpenAI provider configured and API key present."""
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}):
+        # Should not raise
+        validate_embedding_provider_available("openai", "text-embedding-3-small")
+
+
+def test_validate_embedding_provider_openai_missing_key():
+    """Should raise error when OpenAI provider configured but API key missing."""
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(RuntimeError, match="OpenAI API key required"):
+            validate_embedding_provider_available("openai", "text-embedding-3-small")
+
+
+def test_validate_embedding_provider_ollama_available():
+    """Should pass validation when Ollama provider configured and service responds."""
+    import requests
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+
+    with patch("requests.get") as mock_get:
+        mock_get.return_value = mock_response
+        # Should not raise
+        validate_embedding_provider_available("ollama", "mxbai-embed-large")
+
+
+def test_validate_embedding_provider_ollama_unavailable():
+    """Should raise error when Ollama provider configured but service unavailable."""
+    import requests
+
+    with patch("requests.get") as mock_get:
+        mock_get.side_effect = requests.ConnectionError("Connection refused")
+
+        with pytest.raises(RuntimeError, match="Ollama service unavailable"):
+            validate_embedding_provider_available("ollama", "mxbai-embed-large")
+
+
+def test_validate_embedding_provider_unknown():
+    """Should raise error for unknown provider."""
+    with pytest.raises(ValueError, match="Unknown embedding provider"):
+        validate_embedding_provider_available("unknown-provider", "some-model")
