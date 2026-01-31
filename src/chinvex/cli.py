@@ -215,12 +215,23 @@ def search_cmd(
     repo: str | None = typer.Option(None, "--repo", help="Filter by repo"),
     ollama_host: str | None = typer.Option(None, "--ollama-host", help="Override Ollama host"),
     no_recency: bool = typer.Option(False, "--no-recency", help="Disable recency decay"),
+    allow_mixed_embeddings: bool = typer.Option(False, "--allow-mixed-embeddings", help="Allow mixed embedding providers (P6+)"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
 
     if source not in {"all", "repo", "chat", "codex_session"}:
         raise typer.BadParameter("source must be one of: all, repo, chat, codex_session")
+
+    # Check for --allow-mixed-embeddings flag
+    if allow_mixed_embeddings:
+        typer.secho(
+            "Error: Mixed-space embedding merge is not yet supported. "
+            "This feature is planned for P6+. "
+            "For now, ensure all contexts use the same embedding provider.",
+            fg=typer.colors.RED
+        )
+        raise typer.Exit(code=1)
 
     # Determine search mode: multi-context, single-context, or legacy config
     if all_contexts or contexts:
@@ -254,6 +265,7 @@ def search_cmd(
             source=source,
             ollama_host=ollama_host,
             recency_enabled=not no_recency,
+            allow_mixed_embeddings=allow_mixed_embeddings,
         )
 
         if not results:

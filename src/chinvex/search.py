@@ -418,6 +418,7 @@ def search_multi_context(
     source: str = "all",
     ollama_host: str | None = None,
     recency_enabled: bool = True,
+    allow_mixed_embeddings: bool = False,
 ) -> list[SearchResult]:
     """
     Search across multiple contexts, merge results by score.
@@ -430,12 +431,25 @@ def search_multi_context(
         source: Filter by source type (all/repo/chat/codex_session)
         ollama_host: Ollama host override
         recency_enabled: Enable recency decay
+        allow_mixed_embeddings: Allow mixed embedding providers (not yet supported in P5)
 
     Returns:
         List of SearchResult objects sorted by score descending
+
+    Raises:
+        ValueError: If contexts use mixed embedding providers and allow_mixed_embeddings=False
+        NotImplementedError: If allow_mixed_embeddings=True (not supported in P5)
     """
     from pathlib import Path
     import os
+
+    # Check for mixed embeddings flag
+    if allow_mixed_embeddings:
+        raise NotImplementedError(
+            "Mixed-space embedding merge is not yet supported. "
+            "This feature is planned for P6+. "
+            "For now, ensure all contexts use the same embedding provider."
+        )
 
     # Get contexts root
     contexts_root_str = os.getenv("CHINVEX_CONTEXTS_ROOT", "P:/ai_memory/contexts")
