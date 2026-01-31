@@ -312,6 +312,106 @@ Set `OPENAI_API_KEY` environment variable for OpenAI provider.
 
 **Dimension safety**: Chinvex prevents mixing embeddings with different dimensions. If you switch providers or models, use `--rebuild-index` to recreate the index with the new dimensions.
 
+## Reranking (P5.4)
+
+Chinvex supports optional two-stage retrieval for improved relevance:
+
+1. **Stage 1**: Hybrid search returns top N candidates (default: 20)
+2. **Stage 2**: Cross-encoder reranker reranks to top K (default: 5)
+
+### Enable Reranking
+
+**Per-query (CLI flag):**
+```bash
+chinvex search --context Chinvex --rerank "chromadb batch limit"
+```
+
+**Always-on (context.json):**
+```json
+{
+  "reranker": {
+    "provider": "cohere",
+    "model": "rerank-english-v3.0",
+    "candidates": 20,
+    "top_k": 5
+  }
+}
+```
+
+### Reranker Providers
+
+#### Cohere (Recommended)
+- **Provider**: `cohere`
+- **Model**: `rerank-english-v3.0`
+- **Setup**: Set `COHERE_API_KEY` environment variable
+- **Get API key**: https://cohere.com/
+- **Latency**: ~200-500ms for 20 candidates
+- **Quality**: Excellent
+
+Example:
+```bash
+export COHERE_API_KEY="your-key-here"
+chinvex search --context X --rerank "query"
+```
+
+#### Jina
+- **Provider**: `jina`
+- **Model**: `jina-reranker-v1-base-en`
+- **Setup**: Set `JINA_API_KEY` environment variable
+- **Get API key**: https://jina.ai/
+- **Latency**: ~300-600ms for 20 candidates
+- **Quality**: Good
+
+Example:
+```bash
+export JINA_API_KEY="your-key-here"
+```
+
+#### Local Cross-Encoder
+- **Provider**: `local`
+- **Model**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
+- **Setup**: No API key required (downloads model on first use to `~/.cache/huggingface/`)
+- **Latency**: ~1-2s for 20 candidates (slower but free)
+- **Quality**: Good
+
+Example context.json:
+```json
+{
+  "reranker": {
+    "provider": "local",
+    "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "candidates": 20,
+    "top_k": 5
+  }
+}
+```
+
+### Budget Guardrails
+
+- **Minimum candidates**: Reranker only runs if initial retrieval returns ≥10 candidates
+- **Maximum candidates**: Truncates to 50 candidates (prevents excessive latency/cost)
+- **Latency budget**: 2s max for rerank step (warning if exceeded)
+- **Fallback**: If reranker fails (missing creds, service down, timeout), returns pre-rerank results with warning
+
+### Configuration Fields
+
+- `provider` (required): `"cohere"`, `"jina"`, or `"local"`
+- `model` (required): Provider-specific model name
+- `candidates` (optional, default 20): Number of candidates to fetch from initial retrieval
+- `top_k` (optional, default 5): Number of results to return after reranking
+
+### Disable Reranking
+
+- **Per-query**: Omit `--rerank` flag
+- **Always-off**: Set `"reranker": null` in context.json or omit field entirely
+
+### Performance Notes
+
+- Reranking adds latency but significantly improves relevance
+- API-based rerankers (Cohere, Jina) are faster than local cross-encoder
+- Local cross-encoder downloads ~400MB model on first use
+- Use `--rerank` flag for ad-hoc queries; configure in context.json for always-on behavior
+
 ### Example tool calls
 
 `chinvex_search`:
