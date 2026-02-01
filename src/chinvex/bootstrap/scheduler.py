@@ -84,14 +84,36 @@ def _generate_task_xml(
     """Generate Task Scheduler XML definition."""
     from datetime import datetime
 
-    # Build PowerShell command with arguments
-    args_list = [
-        f"-ContextsRoot \"{contexts_root}\""
-    ]
-    if ntfy_topic:
-        args_list.append(f"-NtfyTopic \"{ntfy_topic}\"")
+    # Find VBScript launcher (create if doesn't exist)
+    vbs_launcher = script_path.parent / "scheduled_sweep_launcher.vbs"
+    if not vbs_launcher.exists():
+        # Create VBScript launcher
+        vbs_content = f"""' VBScript launcher for scheduled sweep - completely hides all windows
+' This prevents any console window flashing when run from Task Scheduler
 
-    args_str = " ".join(args_list)
+Dim shell, scriptPath, contextsRoot, ntfyTopic, command
+
+' Configuration
+scriptPath = "{script_path}"
+contextsRoot = "{contexts_root}"
+ntfyTopic = "{ntfy_topic}"
+
+' Build PowerShell command
+command = "pwsh.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File """ & scriptPath & """ -ContextsRoot """ & contextsRoot & """"
+If ntfyTopic <> "" Then
+    command = command & " -NtfyTopic """ & ntfyTopic & """"
+End If
+
+' Create shell object
+Set shell = CreateObject("WScript.Shell")
+
+' Run command with window style 0 (completely hidden)
+shell.Run command, 0, False
+
+Set shell = Nothing
+"""
+        vbs_launcher.write_text(vbs_content, encoding='utf-8')
+        log.info(f"Created VBScript launcher: {vbs_launcher}")
 
     # Use current time for StartBoundary
     start_boundary = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -132,8 +154,8 @@ def _generate_task_xml(
   </Settings>
   <Actions>
     <Exec>
-      <Command>pwsh</Command>
-      <Arguments>-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{script_path}" {args_str}</Arguments>
+      <Command>wscript.exe</Command>
+      <Arguments>"{vbs_launcher}" //B //Nologo</Arguments>
     </Exec>
   </Actions>
   <Principals>

@@ -83,8 +83,13 @@ def sync_stop_cmd() -> None:
             # Send termination signal
             try:
                 if sys.platform == "win32":
-                    # Windows: use taskkill
-                    subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=False)
+                    # Windows: use taskkill (hidden window)
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        check=False,
+                        capture_output=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
                 else:
                     # Unix: use SIGTERM
                     os.kill(pid, signal.SIGTERM)
@@ -207,7 +212,12 @@ def sync_reconcile_sources_cmd() -> None:
             if pid:
                 try:
                     if sys.platform == "win32":
-                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=False)
+                        subprocess.run(
+                            ["taskkill", "/F", "/PID", str(pid)],
+                            check=False,
+                            capture_output=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW
+                        )
                     else:
                         os.kill(pid, signal.SIGTERM)
 

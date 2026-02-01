@@ -41,14 +41,14 @@ def test_provider_selection_precedence_env():
     assert provider.model_name == "text-embedding-3-small"
 
 
-def test_provider_selection_default_ollama():
-    """Test default is ollama."""
+def test_provider_selection_default_openai():
+    """Test default is openai."""
     provider = get_provider(
         cli_provider=None,
         context_config=None,
         env_provider=None
     )
-    assert provider.model_name == "mxbai-embed-large"
+    assert provider.model_name == "text-embedding-3-small"
 
 
 def test_dimension_mismatch_fails(tmp_path):

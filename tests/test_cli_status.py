@@ -13,7 +13,8 @@ def test_format_status_output_healthy():
             last_sync="2026-01-29T10:00:00Z",
             is_stale=False,
             hours_since_sync=2.5,
-            watcher_running=True
+            watcher_running=True,
+            embedding_provider="openai"
         ),
         ContextStatus(
             name="Streamside",
@@ -21,7 +22,8 @@ def test_format_status_output_healthy():
             last_sync="2026-01-29T11:30:00Z",
             is_stale=False,
             hours_since_sync=1.0,
-            watcher_running=True
+            watcher_running=True,
+            embedding_provider="openai"
         )
     ]
 
@@ -42,7 +44,8 @@ def test_format_status_output_stale():
             last_sync="2026-01-28T05:00:00Z",
             is_stale=True,
             hours_since_sync=31.0,
-            watcher_running=False
+            watcher_running=False,
+            embedding_provider="openai"
         )
     ]
 
