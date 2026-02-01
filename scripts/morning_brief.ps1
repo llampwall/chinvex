@@ -38,6 +38,44 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Invoke-Hidden {
+    param(
+        [string]$Command,
+        [string[]]$Arguments
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Command
+
+    # Properly escape and join arguments
+    $escapedArgs = $Arguments | ForEach-Object {
+        if ($_ -match '\s|"') {
+            # Quote arguments that contain spaces or quotes
+            '"{0}"' -f ($_ -replace '"', '\"')
+        } else {
+            $_
+        }
+    }
+    $psi.Arguments = $escapedArgs -join " "
+
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    $process.Start() | Out-Null
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    return @{
+        ExitCode = $process.ExitCode
+        Output = $stdout
+        Error = $stderr
+    }
+}
+
 # Default output path
 if (-not $OutputPath) {
     $OutputPath = Join-Path (Split-Path $ContextsRoot -Parent) "MORNING_BRIEF.md"
@@ -59,8 +97,14 @@ print(ntfy_body, end='')
 "@
 
 try {
-    # Run Python code and capture ntfy body
-    $ntfyBody = python -c $pythonCode
+    # Run Python code and capture ntfy body using hidden process
+    $result = Invoke-Hidden -Command "python" -Arguments @("-c", $pythonCode)
+
+    if ($result.ExitCode -ne 0) {
+        throw "Python script failed: $($result.Error)"
+    }
+
+    $ntfyBody = $result.Output
 
     Write-Host "Generated morning brief at $OutputPath"
 

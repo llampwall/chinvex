@@ -50,6 +50,44 @@ function Write-Log {
     Add-Content -Path $LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
+function Invoke-Hidden {
+    param(
+        [string]$Command,
+        [string[]]$Arguments
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Command
+
+    # Properly escape and join arguments
+    $escapedArgs = $Arguments | ForEach-Object {
+        if ($_ -match '\s|"') {
+            # Quote arguments that contain spaces or quotes
+            '"{0}"' -f ($_ -replace '"', '\"')
+        } else {
+            $_
+        }
+    }
+    $psi.Arguments = $escapedArgs -join " "
+
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    $process.Start() | Out-Null
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    return @{
+        ExitCode = $process.ExitCode
+        Output = $stdout
+        Error = $stderr
+    }
+}
+
 function Send-Alert {
     param([string]$Message)
     if ($NtfyTopic) {
@@ -72,16 +110,17 @@ $env:CHINVEX_STATE_DIR = $StateDir
 # 1. Ensure watcher is running
 Write-Log "Checking watcher status..."
 try {
-    $statusOutput = chinvex sync status 2>&1 | Out-String
+    $result = Invoke-Hidden -Command "chinvex" -Arguments @("sync", "status")
+    $statusOutput = $result.Output + $result.Error
     if ($statusOutput -match "NOT RUNNING") {
         Write-Log "Watcher not running, starting..."
-        chinvex sync start
+        Invoke-Hidden -Command "chinvex" -Arguments @("sync", "start") | Out-Null
         Send-Alert "Chinvex watcher was down, restarted"
     } elseif ($statusOutput -match "STALE") {
         Write-Log "Watcher heartbeat stale, restarting..."
-        chinvex sync stop
+        Invoke-Hidden -Command "chinvex" -Arguments @("sync", "stop") | Out-Null
         Start-Sleep -Seconds 2
-        chinvex sync start
+        Invoke-Hidden -Command "chinvex" -Arguments @("sync", "start") | Out-Null
         Send-Alert "Chinvex watcher heartbeat stale, restarted"
     } else {
         Write-Log "Watcher running normally"
@@ -94,7 +133,7 @@ try {
 # 2. Reconcile sources (ensure watcher watching correct paths)
 Write-Log "Reconciling sources..."
 try {
-    chinvex sync reconcile-sources 2>&1 | Out-Null
+    Invoke-Hidden -Command "chinvex" -Arguments @("sync", "reconcile-sources") | Out-Null
 } catch {
     Write-Log "Source reconciliation failed: $_"
 }
@@ -116,7 +155,8 @@ try {
                 if ($status.freshness.is_stale) {
                     # Use Python helper to check dedup and send if allowed
                     $logFile = Join-Path $env:USERPROFILE ".chinvex\push_log.jsonl"
-                    python -c "from chinvex.notify import send_stale_alert; send_stale_alert('$($ctx.Name)', '$logFile', '$NtfyServer', '$NtfyTopic')" 2>&1 | Out-Null
+                    $pythonCode = "from chinvex.notify import send_stale_alert; send_stale_alert('$($ctx.Name)', '$logFile', '$NtfyServer', '$NtfyTopic')"
+                    Invoke-Hidden -Command "python" -Arguments @("-c", $pythonCode) | Out-Null
                     Write-Log "Checked stale alert for $($ctx.Name)"
                 }
             } catch {
@@ -131,7 +171,7 @@ try {
 # 4. Generate global status
 Write-Log "Generating global status..."
 try {
-    chinvex status --regenerate 2>&1 | Out-Null
+    Invoke-Hidden -Command "chinvex" -Arguments @("status", "--regenerate") | Out-Null
     Write-Log "Global status regenerated"
 } catch {
     Write-Log "Global status generation failed: $_"
