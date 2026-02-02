@@ -10,10 +10,12 @@ module.exports = {
     },
     {
       name: "chinvex-gateway",
-      script: "python",
+      script: "P:\\software\\chinvex\\.venv\\Scripts\\pythonw.exe",
       args: "-m chinvex.cli gateway serve --port 7778",
+      cwd: "P:\\software\\chinvex",
       autorestart: true,
-      restart_delay: 2000
+      restart_delay: 2000,
+      windowsHide: true
     },
   ]
 }
