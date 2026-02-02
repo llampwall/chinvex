@@ -66,6 +66,7 @@ def ingest_cmd(
     chat_root: list[str] = typer.Option([], "--chat-root", help="Add chat root to context (can be repeated)"),
     no_write_context: bool = typer.Option(False, "--no-write-context", help="Ingest ad-hoc without mutating context.json"),
     no_claude_hook: bool = typer.Option(False, "--no-claude-hook", help="Skip Claude Code startup hook installation"),
+    register_only: bool = typer.Option(False, "--register-only", help="Register paths in context.json without ingesting"),
 ) -> None:
     if not in_venv():
         typer.secho("Warning: Not running inside a virtual environment.", fg=typer.colors.YELLOW)
@@ -73,6 +74,46 @@ def ingest_cmd(
     if not context and not config:
         typer.secho("Error: Must provide either --context or --config", fg=typer.colors.RED)
         raise typer.Exit(code=2)
+
+    # Handle --register-only: add paths to context.json without ingesting
+    if register_only:
+        if not context:
+            typer.secho("Error: --register-only requires --context", fg=typer.colors.RED)
+            raise typer.Exit(code=2)
+        if not repo and not chat_root:
+            typer.secho("Error: --register-only requires --repo or --chat-root", fg=typer.colors.RED)
+            raise typer.Exit(code=2)
+
+        from .context_cli import create_context_if_missing
+
+        contexts_root = get_contexts_root()
+
+        # Validate paths exist
+        for repo_path in repo:
+            if not Path(repo_path).exists():
+                typer.secho(f"Error: Repo path does not exist: {repo_path}", fg=typer.colors.RED)
+                raise typer.Exit(code=2)
+        for chat_path in chat_root:
+            if not Path(chat_path).exists():
+                typer.secho(f"Error: Chat root does not exist: {chat_path}", fg=typer.colors.RED)
+                raise typer.Exit(code=2)
+
+        # Create context if missing, or update with new paths
+        create_context_if_missing(
+            context,
+            contexts_root,
+            repos=repo if repo else None,
+            chat_roots=chat_root if chat_root else None
+        )
+
+        typer.secho(f"Registered paths in context '{context}' (no ingestion)", fg=typer.colors.GREEN)
+        if repo:
+            for r in repo:
+                typer.echo(f"  repo: {r}")
+        if chat_root:
+            for c in chat_root:
+                typer.echo(f"  chat_root: {c}")
+        return
 
     if context:
         # Validate repo paths exist
@@ -369,15 +410,165 @@ def search_cmd(
 
 
 @context_app.command("create")
-def context_create_cmd(name: str = typer.Argument(..., help="Context name")) -> None:
+def context_create_cmd(
+    name: str = typer.Argument(..., help="Context name"),
+    idempotent: bool = typer.Option(False, "--idempotent", help="No-op if context already exists"),
+) -> None:
     """Create a new context."""
-    create_context(name)
+    if idempotent:
+        from .context_cli import create_context_if_missing, get_contexts_root
+        contexts_root = get_contexts_root()
+        ctx_dir = contexts_root / name
+        if ctx_dir.exists():
+            typer.echo(f"Context '{name}' already exists (idempotent)")
+            return
+        create_context_if_missing(name, contexts_root)
+        typer.secho(f"Created context: {name}", fg=typer.colors.GREEN)
+    else:
+        create_context(name)
 
 
 @context_app.command("list")
-def context_list_cmd() -> None:
+def context_list_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
     """List all contexts."""
-    list_contexts_cli()
+    if json_output:
+        import json
+        from .context import list_contexts
+        contexts_root = get_contexts_root()
+        contexts = list_contexts(contexts_root)
+        output = [
+            {
+                "name": ctx.name,
+                "aliases": ctx.aliases,
+                "updated_at": ctx.updated_at,
+            }
+            for ctx in contexts
+        ]
+        typer.echo(json.dumps(output, indent=2))
+    else:
+        list_contexts_cli()
+
+
+@context_app.command("exists")
+def context_exists_cmd(
+    name: str = typer.Argument(..., help="Context name to check"),
+) -> None:
+    """Check if a context exists. Exits 0 if exists, 1 if not."""
+    contexts_root = get_contexts_root()
+    ctx_dir = contexts_root / name
+    if ctx_dir.exists() and (ctx_dir / "context.json").exists():
+        typer.echo(f"Context '{name}' exists")
+        raise typer.Exit(code=0)
+    else:
+        typer.echo(f"Context '{name}' does not exist")
+        raise typer.Exit(code=1)
+
+
+@context_app.command("rename")
+def context_rename_cmd(
+    old_name: str = typer.Argument(..., help="Current context name"),
+    new_name: str = typer.Option(..., "--to", help="New context name"),
+) -> None:
+    """Rename a context."""
+    import json
+    import shutil
+    from .context_cli import get_indexes_root
+
+    contexts_root = get_contexts_root()
+    indexes_root = get_indexes_root()
+
+    old_ctx_dir = contexts_root / old_name
+    new_ctx_dir = contexts_root / new_name
+    old_idx_dir = indexes_root / old_name
+    new_idx_dir = indexes_root / new_name
+
+    # Validate source exists
+    if not old_ctx_dir.exists():
+        typer.secho(f"Context '{old_name}' does not exist", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Validate target doesn't exist
+    if new_ctx_dir.exists():
+        typer.secho(f"Context '{new_name}' already exists", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    try:
+        # Rename context directory
+        shutil.move(str(old_ctx_dir), str(new_ctx_dir))
+
+        # Rename index directory if it exists
+        if old_idx_dir.exists():
+            shutil.move(str(old_idx_dir), str(new_idx_dir))
+    except PermissionError as e:
+        typer.secho(
+            f"Cannot rename: files are locked. Stop any running processes using this context first.",
+            fg=typer.colors.RED
+        )
+        raise typer.Exit(code=1)
+
+    # Update context.json
+    context_file = new_ctx_dir / "context.json"
+    if context_file.exists():
+        ctx_data = json.loads(context_file.read_text(encoding="utf-8"))
+        ctx_data["name"] = new_name
+        # Update index paths
+        if "index" in ctx_data:
+            ctx_data["index"]["sqlite_path"] = str(new_idx_dir / "hybrid.db")
+            ctx_data["index"]["chroma_dir"] = str(new_idx_dir / "chroma")
+        context_file.write_text(json.dumps(ctx_data, indent=2), encoding="utf-8")
+
+    typer.secho(f"Renamed context '{old_name}' to '{new_name}'", fg=typer.colors.GREEN)
+
+
+@context_app.command("remove-repo")
+def context_remove_repo_cmd(
+    context: str = typer.Argument(..., help="Context name"),
+    repo: str = typer.Option(..., "--repo", help="Repo path to remove"),
+    prune: bool = typer.Option(False, "--prune", help="Also delete indexed chunks from this repo"),
+) -> None:
+    """Remove a repo path from a context's configuration."""
+    import json
+    from .util import normalize_path_for_dedup
+
+    contexts_root = get_contexts_root()
+    ctx_dir = contexts_root / context
+    context_file = ctx_dir / "context.json"
+
+    if not context_file.exists():
+        typer.secho(f"Context '{context}' does not exist", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Load context config
+    ctx_data = json.loads(context_file.read_text(encoding="utf-8"))
+    repos = ctx_data.get("includes", {}).get("repos", [])
+
+    # Normalize the target path for matching
+    target_normalized = normalize_path_for_dedup(repo)
+
+    # Find and remove matching repo
+    original_count = len(repos)
+    repos = [r for r in repos if normalize_path_for_dedup(r) != target_normalized]
+
+    if len(repos) == original_count:
+        typer.secho(f"Repo path not found in context '{context}': {repo}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Update and save
+    ctx_data["includes"]["repos"] = repos
+    context_file.write_text(json.dumps(ctx_data, indent=2), encoding="utf-8")
+
+    typer.secho(f"Removed repo from context '{context}': {repo}", fg=typer.colors.GREEN)
+
+    # Handle --prune
+    if prune:
+        typer.secho(
+            "Warning: --prune is not yet implemented. "
+            "Indexed chunks from this repo remain in the database. "
+            "Run 'chinvex ingest --context {context} --rebuild-index' to clean up.",
+            fg=typer.colors.YELLOW
+        )
 
 
 @state_app.command("generate")

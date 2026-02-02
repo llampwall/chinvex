@@ -24,6 +24,11 @@ Chinvex now uses a context registry system for managing multiple projects.
 chinvex context create MyProject
 ```
 
+**Idempotent creation** (no-op if context exists):
+```powershell
+chinvex context create MyProject --idempotent
+```
+
 This creates:
 - `P:\ai_memory\contexts\MyProject\context.json`
 - `P:\ai_memory\indexes\MyProject\hybrid.db`
@@ -63,6 +68,43 @@ Edit `P:\ai_memory\contexts\MyProject\context.json`:
 chinvex context list
 ```
 
+**JSON output** (for scripting):
+```powershell
+chinvex context list --json
+```
+
+### Check if context exists
+
+```powershell
+chinvex context exists MyProject
+```
+
+Exits with code 0 if context exists, 1 if not. Useful for scripting:
+```powershell
+if (chinvex context exists MyProject) { "exists" } else { "missing" }
+```
+
+### Rename a context
+
+```powershell
+chinvex context rename OldName --to NewName
+```
+
+Renames the context directory, index directory, and updates all internal paths. No re-ingestion required.
+
+### Remove a repo from context
+
+```powershell
+chinvex context remove-repo MyProject --repo C:\Code\old-repo
+```
+
+Removes the repo path from `context.json`. The indexed chunks remain in the database until the next `--rebuild-index`.
+
+To also delete indexed chunks (not yet implemented):
+```powershell
+chinvex context remove-repo MyProject --repo C:\Code\old-repo --prune
+```
+
 ### Ingest with context
 
 **Basic ingestion** (reads paths from context.json):
@@ -89,6 +131,14 @@ chinvex ingest --context MyProject --repo C:\Code\myproject --chat-root P:\ai_me
 - `--rebuild-index`: Force full rebuild instead of incremental update
 - `--no-write-context`: Prevent auto-creation of missing contexts (fail instead)
 - `--no-claude-hook`: Skip automatic Claude Code hook installation
+- `--register-only`: Add paths to context.json without running ingestion (see below)
+
+**Register-only mode** (add paths without ingesting):
+```powershell
+# Register a repo path without embedding - useful for external tooling
+chinvex ingest --context MyProject --repo C:\Code\myproject --register-only
+```
+This creates the context if missing, adds the repo path to `context.json`, but skips the actual embedding/indexing step. Use this when you want to register paths for later ingestion, or when integrating with external tools like [strap](https://github.com/yourusername/strap) that manage context registration separately from ingestion.
 
 **Claude Code integration**: By default, ingestion installs a `SessionStart` hook in each repository's `.claude/settings.json`. This automatically runs `chinvex brief --context <name>` when you open the repository in Claude Code, providing context about recent changes. Use `--no-claude-hook` to disable this behavior.
 
