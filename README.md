@@ -105,6 +105,32 @@ To also delete indexed chunks (not yet implemented):
 chinvex context remove-repo MyProject --repo C:\Code\old-repo --prune
 ```
 
+### Archive a context
+
+Archive an existing context to the `_archive` table of contents. This extracts a description from the context's repos, adds an entry to the `_archive` context, then deletes the full context and index.
+
+```powershell
+chinvex context archive MyOldProject
+```
+
+The `_archive` context acts as a lightweight table of contents - it stores just the name and description of each archived item, making the system aware of what exists without holding full index data.
+
+**Description extraction fallback chain:**
+1. `docs/memory/STATE.md` → "Current Objective" line
+2. `README.md` → first non-empty paragraph
+
+### Archive an unmanaged directory
+
+For repos that were never managed as full contexts, use `archive-unmanaged` to add them directly to the table of contents:
+
+```powershell
+# With explicit description
+chinvex archive-unmanaged --name oldrepo --dir P:\software\oldrepo --desc "An old experiment"
+
+# Auto-detect description from README
+chinvex archive-unmanaged --name oldrepo --dir P:\software\oldrepo
+```
+
 ### Ingest with context
 
 **Basic ingestion** (reads paths from context.json):

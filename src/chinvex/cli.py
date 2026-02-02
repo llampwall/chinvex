@@ -6,10 +6,192 @@ from pathlib import Path
 import typer
 
 from .config import ConfigError, load_config
-from .context_cli import create_context, get_contexts_root, list_contexts_cli
+from .context_cli import create_context, get_contexts_root, get_indexes_root, list_contexts_cli
 from .ingest import ingest
 from .search import search
 from .util import in_venv
+
+
+# === Archive helpers for _archive context ===
+
+def _extract_description_from_dir(dir_path: Path) -> str:
+    """
+    Extract description from a directory using fallback chain:
+    1. docs/memory/STATE.md -> "Current Objective" line
+    2. README.md -> first non-empty paragraph
+    Returns empty string if nothing found.
+    """
+    # Try STATE.md first
+    state_md = dir_path / "docs" / "memory" / "STATE.md"
+    if state_md.exists():
+        try:
+            content = state_md.read_text(encoding="utf-8")
+            for line in content.splitlines():
+                # Look for "Current Objective:" or similar
+                if "current objective" in line.lower():
+                    # Extract the value after the colon
+                    if ":" in line:
+                        return line.split(":", 1)[1].strip()
+                    # Or if it's a header, get the next non-empty line
+        except Exception:
+            pass
+
+    # Try README.md
+    readme_md = dir_path / "README.md"
+    if readme_md.exists():
+        try:
+            content = readme_md.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            # Skip title (usually first # line) and find first paragraph
+            in_paragraph = False
+            paragraph_lines = []
+            for line in lines:
+                stripped = line.strip()
+                # Skip empty lines and headers before finding content
+                if not stripped:
+                    if in_paragraph and paragraph_lines:
+                        break  # End of first paragraph
+                    continue
+                if stripped.startswith("#"):
+                    if in_paragraph and paragraph_lines:
+                        break
+                    continue
+                # Found content
+                in_paragraph = True
+                paragraph_lines.append(stripped)
+
+            if paragraph_lines:
+                # Limit to reasonable length
+                desc = " ".join(paragraph_lines)
+                if len(desc) > 200:
+                    desc = desc[:197] + "..."
+                return desc
+        except Exception:
+            pass
+
+    return ""
+
+
+def _add_to_archive_context(name: str, description: str) -> None:
+    """
+    Add an entry to the _archive context.
+    Creates the _archive context if it doesn't exist.
+    Entry format: "[name] description" as a single chunk.
+    """
+    import json
+    from datetime import datetime, timezone
+    from hashlib import sha256
+
+    from .context_cli import create_context_if_missing
+
+    contexts_root = get_contexts_root()
+
+    # Ensure _archive context exists
+    archive_ctx_dir = contexts_root / "_archive"
+    if not archive_ctx_dir.exists():
+        create_context_if_missing("_archive", contexts_root)
+
+    # Load _archive context to get index paths
+    archive_config_path = archive_ctx_dir / "context.json"
+    archive_config = json.loads(archive_config_path.read_text(encoding="utf-8"))
+
+    db_path = Path(archive_config["index"]["sqlite_path"])
+    chroma_dir = Path(archive_config["index"]["chroma_dir"])
+
+    # Create chunk content in parseable format
+    chunk_content = f"[{name}] {description}" if description else f"[{name}] (no description)"
+
+    # Generate IDs
+    doc_id = f"archive:{name}"
+    chunk_id = sha256(f"{doc_id}:0".encode()).hexdigest()[:16]
+
+    # Insert into SQLite
+    from .storage import Storage
+    storage = Storage(db_path)
+    storage.ensure_schema()
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Check if entry already exists, update if so
+    storage.conn.execute(
+        "DELETE FROM chunks WHERE doc_id = ?",
+        (doc_id,)
+    )
+    storage.conn.execute(
+        "DELETE FROM documents WHERE doc_id = ?",
+        (doc_id,)
+    )
+
+    # Insert document (schema: doc_id, source_type, source_uri, project, repo, title, updated_at, ...)
+    storage.conn.execute(
+        """INSERT INTO documents (doc_id, source_type, source_uri, title, updated_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (doc_id, "archive_entry", f"archive://{name}", name, now)
+    )
+
+    # Insert chunk (schema: chunk_id, doc_id, source_type, project, repo, ordinal, text, updated_at, ...)
+    storage.conn.execute(
+        """INSERT INTO chunks (chunk_id, doc_id, source_type, ordinal, text, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (chunk_id, doc_id, "archive_entry", 0, chunk_content, now)
+    )
+
+    # Insert into FTS
+    storage.conn.execute(
+        "INSERT INTO chunks_fts(rowid, text) VALUES ((SELECT rowid FROM chunks WHERE chunk_id = ?), ?)",
+        (chunk_id, chunk_content)
+    )
+
+    storage.conn.commit()
+    storage.close()
+
+    # Insert into Chroma for vector search
+    from .vectors import VectorStore
+    vectors = VectorStore(chroma_dir)
+
+    # Get embedding - skip if it fails (FTS still works)
+    try:
+        from .embeddings import get_embedding
+        embedding = get_embedding(chunk_content)
+        vectors.add(
+            ids=[chunk_id],
+            embeddings=[embedding],
+            metadatas=[{"doc_id": doc_id, "source_type": "archive_entry"}]
+        )
+    except Exception:
+        # If embedding fails, skip vector indexing (search still works via FTS)
+        pass
+
+
+def _delete_context(name: str) -> bool:
+    """
+    Delete a context and its index directory.
+    Returns True if deleted, False if not found.
+    Raises PermissionError if files are locked.
+    """
+    import shutil
+    from .storage import Storage
+
+    contexts_root = get_contexts_root()
+    indexes_root = get_indexes_root()
+
+    ctx_dir = contexts_root / name
+    idx_dir = indexes_root / name
+
+    if not ctx_dir.exists():
+        return False
+
+    # Force close any open database connections
+    Storage.force_close_global_connection()
+
+    # Delete context directory
+    shutil.rmtree(ctx_dir)
+
+    # Delete index directory
+    if idx_dir.exists():
+        shutil.rmtree(idx_dir)
+
+    return True
 
 app = typer.Typer(add_completion=False, help="chinvex: hybrid retrieval index CLI")
 
@@ -569,6 +751,108 @@ def context_remove_repo_cmd(
             "Run 'chinvex ingest --context {context} --rebuild-index' to clean up.",
             fg=typer.colors.YELLOW
         )
+
+
+@context_app.command("archive")
+def context_archive_cmd(
+    name: str = typer.Argument(..., help="Context name to archive"),
+) -> None:
+    """
+    Archive an existing context to the _archive table of contents.
+
+    Extracts name + description from the context's repos, adds an entry
+    to the _archive context, then deletes the full context and index.
+    """
+    import json
+
+    contexts_root = get_contexts_root()
+    ctx_dir = contexts_root / name
+    context_file = ctx_dir / "context.json"
+
+    # Validate context exists
+    if not context_file.exists():
+        typer.secho(f"Context '{name}' does not exist", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Prevent archiving _archive itself
+    if name == "_archive":
+        typer.secho("Cannot archive the _archive context itself", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Load context config
+    ctx_data = json.loads(context_file.read_text(encoding="utf-8"))
+    repos = ctx_data.get("includes", {}).get("repos", [])
+
+    # Extract description from first repo using fallback chain
+    description = ""
+    for repo_path in repos:
+        repo_dir = Path(repo_path)
+        if repo_dir.exists():
+            description = _extract_description_from_dir(repo_dir)
+            if description:
+                break
+
+    # Add to _archive context
+    try:
+        _add_to_archive_context(name, description)
+    except Exception as e:
+        typer.secho(f"Failed to add to _archive: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Delete the full context
+    try:
+        _delete_context(name)
+    except PermissionError:
+        typer.secho(
+            f"Cannot delete context: files are locked. "
+            "Stop any running processes using this context first.",
+            fg=typer.colors.RED
+        )
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Archived context '{name}' to _archive", fg=typer.colors.GREEN)
+    if description:
+        typer.echo(f"  Description: {description[:60]}{'...' if len(description) > 60 else ''}")
+    else:
+        typer.echo("  Description: (none found)")
+
+
+@app.command("archive-unmanaged")
+def archive_unmanaged_cmd(
+    name: str = typer.Option(..., "--name", help="Name for the archive entry"),
+    dir: Path = typer.Option(..., "--dir", help="Directory path to archive"),
+    desc: str | None = typer.Option(None, "--desc", help="Description (auto-detected if not provided)"),
+) -> None:
+    """
+    Add an unmanaged directory to the _archive table of contents.
+
+    Use this for repos that were never managed as full contexts.
+    If --desc is not provided, scans the directory for description
+    using fallback chain: docs/memory/STATE.md -> README.md.
+    """
+    # Validate directory exists
+    if not dir.exists():
+        typer.secho(f"Directory does not exist: {dir}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Get description
+    if desc:
+        description = desc
+    else:
+        description = _extract_description_from_dir(dir)
+
+    # Add to _archive context
+    try:
+        _add_to_archive_context(name, description)
+    except Exception as e:
+        typer.secho(f"Failed to add to _archive: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    typer.secho(f"Added '{name}' to _archive", fg=typer.colors.GREEN)
+    if description:
+        typer.echo(f"  Description: {description[:60]}{'...' if len(description) > 60 else ''}")
+    else:
+        typer.echo("  Description: (none found)")
 
 
 @state_app.command("generate")
