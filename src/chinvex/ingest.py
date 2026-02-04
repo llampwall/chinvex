@@ -697,6 +697,63 @@ def _ingest_repo_from_context(
     tags_json = json_module.dumps(repo_metadata.tags)
 
     for path in walk_files(repo_path, excludes=ctx.includes.repo_excludes):
+        # Depth-based ingestion logic
+        file_size = path.stat().st_size
+
+        # For "index" depth: only store file metadata, no content
+        if chinvex_depth == "index":
+            doc_id = sha256_text(f"repo|{ctx.name}|{normalized_path(path)}")
+            updated_at = iso_from_mtime(path)
+
+            # Check fingerprint for skip logic
+            fp = storage.get_fingerprint(normalized_path(path), ctx.name)
+            if fp and fp["mtime_unix"] == int(path.stat().st_mtime):
+                stats["skipped"] += 1
+                tracking["skipped_doc_ids"].append(doc_id)
+                continue
+
+            # Store document metadata without content
+            meta = {
+                "path": normalized_path(path),
+                "ext": path.suffix.lower(),
+                "mtime": updated_at,
+                "repo": str(repo_path.name),
+                "size": file_size,
+            }
+
+            storage.upsert_document(
+                doc_id=doc_id,
+                source_type="repo",
+                source_uri=normalized_path(path),
+                project=None,
+                repo=str(repo_path.name),
+                chinvex_depth=chinvex_depth,
+                status=status,
+                tags_json=tags_json,
+                title=path.name,
+                updated_at=updated_at,
+                content_hash="",  # No content for index-only
+                meta_json=dump_json(meta),
+            )
+
+            # Update fingerprint
+            storage.upsert_fingerprint(
+                normalized_path(path),
+                ctx.name,
+                "",  # No content hash
+                int(path.stat().st_mtime)
+            )
+
+            stats["documents"] += 1
+            tracking["new_doc_ids" if fp is None else "updated_doc_ids"].append(doc_id)
+            continue  # Skip to next file
+
+        # For "light" depth: skip large files (>100KB)
+        if chinvex_depth == "light" and file_size > 100 * 1024:
+            stats["skipped"] += 1
+            continue
+
+        # Read file content for "full" and "light" depths
         text = read_text_utf8(path)
         if text is None:
             continue
@@ -743,7 +800,26 @@ def _ingest_repo_from_context(
             meta_json=dump_json(meta),
         )
 
-        chunks = chunk_repo(text)
+        # Depth-based chunking strategy
+        if chinvex_depth == "light":
+            # Light mode: simpler chunking - just split by lines into larger chunks
+            from .chunking import Chunk
+            lines = text.split('\n')
+            chunk_size = 100  # lines per chunk
+            chunks = []
+            for i in range(0, len(lines), chunk_size):
+                chunk_lines = lines[i:i + chunk_size]
+                chunk_text = '\n'.join(chunk_lines)
+                if chunk_text.strip():
+                    chunks.append(Chunk(
+                        ordinal=len(chunks),
+                        text=chunk_text,
+                        char_start=0,  # Simplified for light mode
+                        char_end=len(chunk_text)
+                    ))
+        else:
+            # Full mode: detailed chunking
+            chunks = chunk_repo(text)
         chunk_rows = []
         fts_rows = []
         ids: list[str] = []
@@ -1279,11 +1355,7 @@ def ingest_delta(ctx, paths, *, contexts_root=None, ollama_host_override=None, e
 
 def _ingest_single_file(file_path, ctx, storage, embedder, vectors, stats):
     """Ingest a single file (minimal implementation)."""
-    text = read_text_utf8(file_path)
-    if text is None:
-        return
-        
-    # Find repo root
+    # Find repo root first to get depth setting
     import json as json_module
 
     repo_metadata = None
@@ -1303,9 +1375,53 @@ def _ingest_single_file(file_path, ctx, storage, embedder, vectors, stats):
     chinvex_depth = repo_metadata.chinvex_depth
     status = repo_metadata.status
     tags_json = json_module.dumps(repo_metadata.tags)
+    file_size = file_path.stat().st_size
 
     doc_id = sha256_text(f"repo|{ctx.name}|{normalized_path(file_path)}")
     updated_at = iso_from_mtime(file_path)
+
+    # For "index" depth: store metadata only, no content
+    if chinvex_depth == "index":
+        fp = storage.get_fingerprint(normalized_path(file_path), ctx.name)
+        if fp and fp["mtime_unix"] == int(file_path.stat().st_mtime):
+            stats["skipped"] += 1
+            return
+
+        storage.upsert_document(
+            doc_id=doc_id,
+            source_type="repo",
+            source_uri=normalized_path(file_path),
+            project=None,
+            repo=str(repo_path.name),
+            chinvex_depth=chinvex_depth,
+            status=status,
+            tags_json=tags_json,
+            title=file_path.name,
+            updated_at=updated_at,
+            content_hash="",
+            meta_json=dump_json({"path": normalized_path(file_path), "size": file_size})
+        )
+
+        storage.upsert_fingerprint(
+            normalized_path(file_path),
+            ctx.name,
+            "",
+            int(file_path.stat().st_mtime)
+        )
+
+        stats["documents"] += 1
+        return
+
+    # For "light" depth: skip large files
+    if chinvex_depth == "light" and file_size > 100 * 1024:
+        stats["skipped"] += 1
+        return
+
+    # Read content for "full" and "light" modes
+    text = read_text_utf8(file_path)
+    if text is None:
+        return
+
     content_hash = sha256_text(text)
 
     # Check if changed
@@ -1336,8 +1452,27 @@ def _ingest_single_file(file_path, ctx, storage, embedder, vectors, stats):
         meta_json=dump_json({"path": normalized_path(file_path)})
     )
     
-    # Chunk and embed
-    chunks = chunk_repo(text)
+    # Chunk and embed with depth-based strategy
+    if chinvex_depth == "light":
+        # Light mode: simpler chunking
+        from .chunking import Chunk
+        lines = text.split('\n')
+        chunk_size = 100  # lines per chunk
+        chunks = []
+        for i in range(0, len(lines), chunk_size):
+            chunk_lines = lines[i:i + chunk_size]
+            chunk_text = '\n'.join(chunk_lines)
+            if chunk_text.strip():
+                chunks.append(Chunk(
+                    ordinal=len(chunks),
+                    text=chunk_text,
+                    char_start=0,
+                    char_end=len(chunk_text)
+                ))
+    else:
+        # Full mode: detailed chunking
+        chunks = chunk_repo(text)
+
     if not chunks:
         return
     
