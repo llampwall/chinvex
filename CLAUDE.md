@@ -47,9 +47,29 @@ See `/specs/` for implementation specs. Look at the highest phase number (P0, P1
 - **Gateway**: HTTP API for search, served via PM2 + cloudflared tunnel
 - **Automation**: File watcher daemon + scheduled sweep + git hooks
 
+## Memory System
+
+Chinvex repos use structured memory files in `docs/memory/`:
+
+- **STATE.md**: Current objective, active work, blockers, next actions
+- **CONSTRAINTS.md**: Infrastructure facts, rules, hazards (merge-only)
+- **DECISIONS.md**: Append-only decision log with dated entries
+
+**SessionStart Integration**: When you open a chinvex-managed repo, a hook runs `chinvex brief --context <name>` to load project context.
+
+**If memory files are uninitialized** (empty or bootstrap templates), the brief will show "ACTION REQUIRED" instructing you to run `/update-memory`.
+
+**The /update-memory skill** analyzes git history and populates memory files with:
+- Current state from recent commits
+- Constraints learned from bugs/infrastructure
+- Decisions with evidence (commit hashes)
+
+See `skills/update-memory/SKILL.md` and `docs/PROJECT_MEMORY_SPEC_v0.3.md` for details.
+
 ## Rules
 
 - Follow the spec exactly
 - Ask before adding dependencies
 - Delete-then-insert for chunk upserts
 - OpenAI embeddings by default (Ollama available via `--embed-provider ollama`)
+- When opening a repo, check if brief shows "ACTION REQUIRED" - if so, offer to run `/update-memory`

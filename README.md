@@ -626,21 +626,82 @@ chinvex state show --context MyProject
 chinvex state note --context MyProject "Working on authentication bug"
 ```
 
-### Memory Files
+### Project Memory System
 
-Create `docs/memory/` in your repo:
-- `STATE.md`: Current objective, active work, blockers
-- `CONSTRAINTS.md`: Infrastructure limits, rules, key facts
-- `DECISIONS.md`: Append-only decision log
+Chinvex provides an automated project memory system that gives Claude Code rich context about your repos. When you open a repo in Claude Code, chinvex automatically generates a session brief from structured memory files.
 
-**Update memory from git history**:
+#### How It Works
+
+1. **SessionStart Hook**: When you run `chinvex ingest`, it installs a hook in `.claude/settings.json`:
+   ```json
+   {
+     "hooks": {
+       "SessionStart": {
+         "command": "chinvex brief --context MyProject"
+       }
+     }
+   }
+   ```
+
+2. **Brief Generation**: When Claude Code opens the repo, it runs `chinvex brief` which reads:
+   - `docs/memory/STATE.md` - Current objective, active work, blockers, next actions
+   - `docs/memory/CONSTRAINTS.md` - Infrastructure facts, rules, hazards
+   - `docs/memory/DECISIONS.md` - Recent decisions (last 7 days)
+   - Latest digest and watch history
+
+3. **Uninitialized Detection**: If memory files don't exist or contain bootstrap templates, the brief includes an "ACTION REQUIRED" warning instructing Claude to run `/update-memory`.
+
+4. **Memory Population**: The `/update-memory` skill (available in Claude Code) analyzes git history and generates meaningful STATE/CONSTRAINTS/DECISIONS content from commits.
+
+5. **Subsequent Sessions**: Future sessions get real project context instead of empty templates.
+
+#### Memory File Structure
+
+Create `docs/memory/` in your repos with these files:
+
+**STATE.md** (rewritten on each update):
+- Current Objective
+- Active Work
+- Blockers
+- Next Actions
+- Quick Reference (run/test commands)
+- Out of Scope (deferred items)
+
+**CONSTRAINTS.md** (merge-only, never deleted):
+- Infrastructure (ports, paths, technical limits)
+- Rules (invariants, "don't do X because Y")
+- Key Facts (URLs, env var names, commands)
+- Hazards (things that bite you)
+- Superseded (obsolete constraints)
+
+**DECISIONS.md** (append-only decision log):
+- Recent rollup (last 30 days summary)
+- Dated entries (### YYYY-MM-DD — Title)
+- Bug fix format (Symptom/Root cause/Fix/Prevention)
+- Evidence (commit hashes)
+
+#### Using the Memory System
+
+**Let Claude populate memory files** (recommended):
+1. Open repo in Claude Code
+2. See "ACTION REQUIRED" warning in brief
+3. Tell Claude: "run /update-memory"
+4. Claude analyzes git history and generates memory files
+5. Future sessions get rich context automatically
+
+**Manual creation**:
 ```powershell
-chinvex update-memory --context MyProject
+# Bootstrap empty templates (not recommended - let Claude populate them)
+chinvex ingest --context MyProject --repo C:\Code\myproject
+# This creates bootstrap templates in docs/memory/
 ```
 
-Analyzes git commits and updates memory files with relevant changes.
+**Skip hook installation** (if you don't want SessionStart integration):
+```powershell
+chinvex ingest --context MyProject --no-claude-hook
+```
 
-See [Memory File Format](specs/P4_IMPLEMENTATION_SPEC.md#appendix-memory-file-format) for details.
+For implementation details, see [PROJECT_MEMORY_SPEC_v0.3.md](docs/PROJECT_MEMORY_SPEC_v0.3.md) and the `/update-memory` skill in `skills/update-memory/SKILL.md`.
 
 ### Git Hooks
 
