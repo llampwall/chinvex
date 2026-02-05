@@ -64,7 +64,7 @@ Chinvex repos use structured memory files in `docs/memory/`:
 - Constraints learned from bugs/infrastructure
 - Decisions with evidence (commit hashes)
 
-See `skills/update-memory/SKILL.md` and `docs/PROJECT_MEMORY_SPEC_v0.3.md` for details.
+See `\docs\MEMORY_SYSTEM_HOW_IT_WORKS.md` and `docs/PROJECT_MEMORY_SPEC` for details.
 
 ## Rules
 
