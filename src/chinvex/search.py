@@ -331,12 +331,29 @@ def search_context(
     storage = Storage(db_path)
     storage.ensure_schema()
 
-    # Use Ollama config from context with localhost fallback
-    ollama_host = ollama_host_override or ctx.ollama.base_url
-    embedding_model = ctx.ollama.embed_model
-    fallback_host = "http://127.0.0.1:11434" if ollama_host != "http://127.0.0.1:11434" else None
+    # Get embedding provider (matches ingest behavior)
+    from .embedding_providers import get_provider
+    import os
 
-    embedder = OllamaEmbedder(ollama_host, embedding_model, fallback_host=fallback_host)
+    ollama_host = ollama_host_override or ctx.ollama.base_url
+    env_provider = os.getenv("CHINVEX_EMBED_PROVIDER")
+
+    # Build context config for provider selection
+    context_config = None
+    if ctx.embedding:
+        context_config = {
+            "embedding": {
+                "provider": ctx.embedding.provider,
+                "model": ctx.embedding.model,
+            }
+        }
+
+    embedder = get_provider(
+        cli_provider=None,  # Search doesn't have CLI override
+        context_config=context_config,
+        env_provider=env_provider,
+        ollama_host=ollama_host
+    )
     vectors = VectorStore(chroma_dir)
 
     # Determine if reranking should be used
