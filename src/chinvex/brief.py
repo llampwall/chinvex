@@ -80,9 +80,12 @@ def generate_brief(
         lines.append("")
         lines.append("---")
         lines.append("")
-        lines.append("**[!] Memory files for this context are empty or uninitialized.**")
+        lines.append("## ACTION REQUIRED")
         lines.append("")
-        lines.append("Run `/update-memory` to generate them from git history.")
+        lines.append("**Memory files are uninitialized.** This brief is showing empty templates.")
+        lines.append("")
+        lines.append("**You should offer to run `/update-memory` now** to populate them from git history.")
+        lines.append("This will analyze recent commits and generate meaningful STATE/CONSTRAINTS/DECISIONS content.")
         lines.append("")
 
     # Context files reference
