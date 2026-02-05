@@ -91,7 +91,8 @@ class OpenAIProvider:
         "text-embedding-ada-002": 1536,
     }
 
-    MAX_BATCH_SIZE = 2048
+    MAX_BATCH_SIZE = 2048  # Max number of texts per request
+    MAX_BATCH_TOKENS = 250000  # Conservative limit (OpenAI limit is 300K)
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0
 
@@ -106,10 +107,15 @@ class OpenAIProvider:
 
         self.client = OpenAI(api_key=self.api_key)
 
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """Estimate token count (rough approximation: 4 chars ≈ 1 token)."""
+        return len(text) // 4
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings using OpenAI API.
-        Handles batching (max 2048 texts) and retries (3x with backoff).
+        Handles batching with token-aware limits and retries (3x with backoff).
         Filters out empty strings as OpenAI API rejects them.
         """
         EMBEDDINGS_TOTAL.labels(provider="openai").inc()
@@ -127,11 +133,30 @@ class OpenAIProvider:
             if not non_empty_texts:
                 return [[0.0] * self.dimensions for _ in texts]
 
-            # Generate embeddings for non-empty texts
+            # Token-aware batching: respect both count and token limits
             all_embeddings = []
-            for i in range(0, len(non_empty_texts), self.MAX_BATCH_SIZE):
-                batch = non_empty_texts[i:i + self.MAX_BATCH_SIZE]
-                embeddings = self._embed_batch(batch)
+            current_batch = []
+            current_batch_tokens = 0
+
+            for text in non_empty_texts:
+                text_tokens = self.estimate_tokens(text)
+
+                # Check if adding this text would exceed limits
+                if (current_batch and
+                    (len(current_batch) >= self.MAX_BATCH_SIZE or
+                     current_batch_tokens + text_tokens > self.MAX_BATCH_TOKENS)):
+                    # Send current batch
+                    embeddings = self._embed_batch(current_batch)
+                    all_embeddings.extend(embeddings)
+                    current_batch = []
+                    current_batch_tokens = 0
+
+                current_batch.append(text)
+                current_batch_tokens += text_tokens
+
+            # Send final batch if any
+            if current_batch:
+                embeddings = self._embed_batch(current_batch)
                 all_embeddings.extend(embeddings)
 
             # Map embeddings back to original indices (use zero vectors for empty strings)
