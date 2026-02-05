@@ -110,19 +110,41 @@ class OpenAIProvider:
         """
         Generate embeddings using OpenAI API.
         Handles batching (max 2048 texts) and retries (3x with backoff).
+        Filters out empty strings as OpenAI API rejects them.
         """
         EMBEDDINGS_TOTAL.labels(provider="openai").inc()
 
         with EMBEDDINGS_LATENCY.labels(provider="openai").time():
-            all_embeddings = []
+            # Filter out empty/whitespace-only strings and track indices
+            non_empty_texts = []
+            non_empty_indices = []
+            for i, text in enumerate(texts):
+                if text and text.strip():
+                    non_empty_texts.append(text)
+                    non_empty_indices.append(i)
 
-            # Batch texts
-            for i in range(0, len(texts), self.MAX_BATCH_SIZE):
-                batch = texts[i:i + self.MAX_BATCH_SIZE]
+            # If all texts are empty, return zero vectors
+            if not non_empty_texts:
+                return [[0.0] * self.dimensions for _ in texts]
+
+            # Generate embeddings for non-empty texts
+            all_embeddings = []
+            for i in range(0, len(non_empty_texts), self.MAX_BATCH_SIZE):
+                batch = non_empty_texts[i:i + self.MAX_BATCH_SIZE]
                 embeddings = self._embed_batch(batch)
                 all_embeddings.extend(embeddings)
 
-            return all_embeddings
+            # Map embeddings back to original indices (use zero vectors for empty strings)
+            result = []
+            embedding_idx = 0
+            for i in range(len(texts)):
+                if i in non_empty_indices:
+                    result.append(all_embeddings[embedding_idx])
+                    embedding_idx += 1
+                else:
+                    result.append([0.0] * self.dimensions)
+
+            return result
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a single batch with retry logic."""
