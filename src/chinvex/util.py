@@ -35,6 +35,8 @@ SKIP_DIRS = {
     ".ruff_cache",
     ".cursor",
     ".qodo",
+    "logs",
+    "log",
 }
 
 ALLOWED_EXTS = {".ts", ".tsx", ".js", ".jsx", ".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml"}
