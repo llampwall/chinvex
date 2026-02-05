@@ -58,8 +58,16 @@ def discover_watch_sources(contexts_root: Path) -> list[WatchSource]:
             includes = ctx_data.get("includes", {})
 
             # Extract repo sources
-            for repo_path_str in includes.get("repos", []):
-                repo_path = Path(repo_path_str)
+            for repo_item in includes.get("repos", []):
+                # Handle both old (string) and new (RepoMetadata dict) formats
+                if isinstance(repo_item, str):
+                    repo_path = Path(repo_item)
+                elif isinstance(repo_item, dict):
+                    repo_path = Path(repo_item["path"])
+                else:
+                    log.warning(f"Skipping invalid repo format in {ctx_name}: {type(repo_item)}")
+                    continue
+
                 sources.append(WatchSource(
                     context_name=ctx_name,
                     source_type="repo",
