@@ -844,6 +844,115 @@ def context_archive_cmd(
         typer.echo("  Description: (none found)")
 
 
+@context_app.command("purge")
+def context_purge_cmd(
+    name: str = typer.Argument(..., help="Context name to purge"),
+    keep_watch_history: bool = typer.Option(False, "--keep-watch-history", help="Preserve watch_history.jsonl"),
+) -> None:
+    """
+    Purge all index and embedding data for a context.
+
+    This deletes:
+    - SQLite FTS5 index (hybrid.db)
+    - ChromaDB vector embeddings (chroma/ directory)
+    - Index metadata (meta.json)
+    - Watch history log (watch_history.jsonl) unless --keep-watch-history is used
+    - Digest cache (.digests/ directory)
+
+    The context configuration is preserved.
+    """
+    import shutil
+    from .context import load_context, ContextNotFoundError
+    from .storage import Storage
+
+    contexts_root = get_contexts_root()
+
+    # Load context to get index paths
+    try:
+        ctx = load_context(name, contexts_root)
+    except ContextNotFoundError:
+        typer.secho(f"Context '{name}' does not exist", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    # Show what will be deleted
+    db_path = ctx.index.sqlite_path
+    chroma_dir = ctx.index.chroma_dir
+    index_dir = db_path.parent
+    meta_json = index_dir / "meta.json"
+    context_dir = contexts_root / name
+    watch_history = context_dir / "watch_history.jsonl"
+    digests_dir = context_dir / ".digests"
+
+    typer.echo(f"This will delete all index data for context '{name}':")
+    typer.echo(f"  - SQLite index: {db_path}")
+    typer.echo(f"  - Vector embeddings: {chroma_dir}")
+    typer.echo(f"  - Index metadata: {meta_json}")
+    if not keep_watch_history and watch_history.exists():
+        typer.echo(f"  - Watch history: {watch_history}")
+    if digests_dir.exists():
+        typer.echo(f"  - Digest cache: {digests_dir}")
+    typer.echo()
+
+    # Confirmation prompt
+    confirm = typer.confirm("Are you sure you want to purge this context?", default=False)
+    if not confirm:
+        typer.echo("Aborted.")
+        raise typer.Exit(code=0)
+
+    # Force close any open database connections
+    Storage.force_close_global_connection()
+
+    # Delete files
+    deleted_items = []
+
+    try:
+        # Delete SQLite database
+        if db_path.exists():
+            db_path.unlink()
+            deleted_items.append(f"SQLite index: {db_path}")
+
+        # Delete ChromaDB directory
+        if chroma_dir.exists():
+            shutil.rmtree(chroma_dir)
+            deleted_items.append(f"Vector embeddings: {chroma_dir}")
+
+        # Delete meta.json
+        if meta_json.exists():
+            meta_json.unlink()
+            deleted_items.append(f"Index metadata: {meta_json}")
+
+        # Delete watch history (unless flagged to keep)
+        if not keep_watch_history and watch_history.exists():
+            watch_history.unlink()
+            deleted_items.append(f"Watch history: {watch_history}")
+
+        # Delete digests directory
+        if digests_dir.exists():
+            shutil.rmtree(digests_dir)
+            deleted_items.append(f"Digest cache: {digests_dir}")
+
+        # Show results
+        typer.secho(f"\nPurged context '{name}':", fg=typer.colors.GREEN)
+        for item in deleted_items:
+            typer.echo(f"  ✓ {item}")
+
+        if keep_watch_history and watch_history.exists():
+            typer.echo(f"\nPreserved:")
+            typer.echo(f"  - Watch history: {watch_history}")
+
+    except PermissionError as e:
+        typer.secho(
+            f"Cannot purge context: files are locked. "
+            f"Stop any running processes using this context first.",
+            fg=typer.colors.RED
+        )
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        typer.secho(f"Error during purge: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+
 @app.command("archive-unmanaged")
 def archive_unmanaged_cmd(
     name: str = typer.Option(..., "--name", help="Name for the archive entry"),

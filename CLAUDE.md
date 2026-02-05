@@ -32,6 +32,7 @@ chinvex search --context <name> "query"      # Search a context
 chinvex brief --context <name>               # Generate session brief
 chinvex status                               # Show all contexts status
 chinvex sync start                           # Start file watcher daemon
+chinvex context purge <name>                 # Purge all index/embedding data (with confirmation)
 ```
 
 ## Current Sprint
