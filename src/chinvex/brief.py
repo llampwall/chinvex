@@ -33,6 +33,9 @@ def generate_brief(
         "",
     ]
 
+    # Check if memory files are uninitialized
+    uninitialized = _is_uninitialized(state_md, constraints_md, decisions_md)
+
     # STATE.md: full content
     if state_md and state_md.exists():
         state_content = _extract_state_sections(state_md)
@@ -72,6 +75,16 @@ def generate_brief(
             lines.extend(watch_summary)
             lines.append("")
 
+    # Warning if memory files are uninitialized
+    if uninitialized:
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        lines.append("**[!] Memory files for this context are empty or uninitialized.**")
+        lines.append("")
+        lines.append("Run `/update-memory` to generate them from git history.")
+        lines.append("")
+
     # Context files reference
     lines.append("## Context Files")
     if state_md:
@@ -81,6 +94,57 @@ def generate_brief(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines))
+
+
+def _is_uninitialized(
+    state_md: Path | None,
+    constraints_md: Path | None,
+    decisions_md: Path | None
+) -> bool:
+    """
+    Check if memory files are uninitialized (missing or still using bootstrap template).
+
+    Returns True if:
+    - STATE.md is missing or has bootstrap markers ("Unknown (needs human)", "Needs triage")
+    - CONSTRAINTS.md is missing or has placeholder text
+    - DECISIONS.md is missing or has placeholder text
+    """
+    # If STATE.md is missing, definitely uninitialized
+    if not state_md or not state_md.exists():
+        return True
+
+    # Read STATE.md and check for bootstrap markers
+    content = state_md.read_text()
+
+    # Count bootstrap markers (both old and new templates)
+    markers = [
+        "Unknown (needs human)",
+        "Needs triage",
+        "Review this file and update with current project state",
+        "Fill in Quick Reference with actual commands",
+        "Run chinvex update-memory to populate this file",  # Old template
+        "- TBD",  # Generic placeholder
+    ]
+
+    marker_count = sum(1 for marker in markers if marker in content)
+
+    # If 2+ bootstrap markers are present, it's still uninitialized
+    if marker_count >= 2:
+        return True
+
+    # Check CONSTRAINTS.md for placeholder text
+    if constraints_md and constraints_md.exists():
+        constraints_content = constraints_md.read_text()
+        if "(Technical limits, batch sizes, ports, paths)" in constraints_content:
+            return True
+
+    # Check DECISIONS.md for placeholder text
+    if decisions_md and decisions_md.exists():
+        decisions_content = decisions_md.read_text()
+        if "(5-10 bullet summary of recent decisions — rewritable)" in decisions_content:
+            return True
+
+    return False
 
 
 def _extract_state_sections(state_md: Path) -> list[str]:
