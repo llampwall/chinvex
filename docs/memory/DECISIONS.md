@@ -13,8 +13,38 @@
 - Replace Unicode output with ASCII-safe alternatives for Windows compatibility
 - Complete P5.3 eval suite with golden queries, metrics, and CI gate
 - Complete P5.4 reranker with Cohere, Jina, and local cross-encoder providers
+- Add `chinvex context sync-metadata-from-strap` command to sync registry.json → context.json
+- Implement .chinvex-status.json files with PID tracking for dashboard integration
+- Exclude status files from sync daemon to prevent infinite loop
 
 ## 2026-02
+
+### 2026-02-05 — Added chinvex context sync-metadata-from-strap command
+
+- **Why:** Strap manages repo metadata in registry.json, chinvex needs to sync that to context.json without triggering unnecessary reingests
+- **Impact:** New command syncs status, tags, and chinvex_depth from strap registry to chinvex context. Enables metadata-only updates (fast) vs. depth changes that require rebuild-index (slow)
+- **Trade-off:** Separate command vs. making ingest handle it - chose clean separation of concerns
+- **Evidence:** d4681d1
+
+### 2026-02-05 — Integrated .chinvex-status.json files for dashboard visibility
+
+- **Why:** Allmind dashboard needs real-time visibility into which repos are being ingested
+- **Impact:** Ingest process writes status files (ingesting/idle/error) with PID tracking. Dashboard can detect stale processes (PID no longer running) and show accurate status
+- **Trade-off:** File-based status vs. database - chose files for simplicity and cross-process visibility
+- **Evidence:** d4681d1
+
+### 2026-02-05 — Excluded .chinvex-status.json from sync daemon file watching
+
+- **Why:** Status files written during ingest would trigger sync daemon, creating infinite loop
+- **Impact:** Added `**/.chinvex-status.json` to EXCLUDE_PATTERNS in patterns.py
+- **Prevention:** Always exclude files that are written as a side effect of ingestion
+- **Evidence:** d4681d1
+
+### 2026-02-05 — Documented sync daemon behavior and status integration in README
+
+- **Why:** Complex behavior (debouncing, force caps, status tracking) needs clear documentation
+- **Impact:** README now explains how sync daemon works, when it triggers ingests, and how status files integrate with dashboard
+- **Evidence:** d4681d1
 
 ### 2026-02-05 — Fixed logs directory ingestion causing index bloat
 

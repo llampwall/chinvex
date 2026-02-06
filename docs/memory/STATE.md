@@ -4,26 +4,27 @@
 # State
 
 ## Current Objective
-Bug fixes and hardening after P5 evaluation suite and reranker implementation
+Dashboard integration and metadata sync infrastructure
 
 ## Active Work
-- Fixing edge cases in embedding providers (OpenAI token limits, empty string handling)
-- Improving ingestion reliability (path normalization, skip directories)
-- Cleaning up documentation and removing obsolete specs
+- Implemented chinvex sync daemon ingestion status visibility for allmind dashboard
+- Added `chinvex context sync-metadata-from-strap` command for registry→context metadata sync
+- Integrated .chinvex-status.json files with PID tracking for staleness detection
 
 ## Blockers
 None
 
 ## Next Actions
+- [ ] Test dashboard status integration end-to-end
+- [ ] Validate depth change workflow (sync metadata + rebuild-index)
 - [ ] Complete P5b planning and implementation (memory maintainer, startup hooks)
 - [ ] Validate eval suite with ≥80% hit rate baseline
-- [ ] Test reranker integration across all providers
-- [ ] Document strap integration workflow
 
 ## Quick Reference
 - Install: `pip install -e .` (requires Python 3.12, venv)
 - Ingest: `chinvex ingest --context <name> --repo <path>`
 - Search: `chinvex search --context <name> "query"`
+- Sync metadata: `chinvex context sync-metadata-from-strap --context <name>`
 - Test: `pytest`
 - Entry point: `src/chinvex/cli.py`
 
@@ -34,6 +35,6 @@ None
 
 ---
 Last memory update: 2026-02-05
-Commits covered through: 87120fd5063f5d4a1a648132caa7b2321a2893f1
+Commits covered through: d4681d179e391e1a97af8165853730d4ed6efe16
 
-<!-- chinvex:last-commit:87120fd5063f5d4a1a648132caa7b2321a2893f1 -->
+<!-- chinvex:last-commit:d4681d179e391e1a97af8165853730d4ed6efe16 -->
