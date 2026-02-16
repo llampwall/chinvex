@@ -304,14 +304,36 @@ async def startup_warmup():
             # Touch SQLite
             storage = Storage(context.index.sqlite_path)
             storage._execute("SELECT 1")
-            # Touch Chroma
+            # Touch Chroma (and close to avoid lingering connections)
             vec_store = VectorStore(context.index.chroma_dir)
             vec_store.collection.count()
+            vec_store.close()  # Clean up warmup connection
             logger.info(f"Warmed up context: {contexts[0].name}")
 
         logger.info("Gateway warmup complete")
     except Exception as e:
         logger.error(f"Warmup failed (non-fatal): {e}", exc_info=True)
+
+
+@app.on_event("shutdown")
+async def shutdown_cleanup():
+    """Clean up database connections on gateway shutdown."""
+    logger.info("Starting gateway shutdown cleanup...")
+
+    try:
+        from chinvex.storage import Storage
+
+        # Force close global SQLite connection
+        Storage.force_close_global_connection()
+        logger.info("Closed global SQLite connection")
+
+        # Note: ChromaDB clients are created per-request and cleaned up by GC.
+        # The VectorStore.close() method is available for explicit cleanup
+        # in long-running processes or tests.
+
+        logger.info("Gateway shutdown cleanup complete")
+    except Exception as e:
+        logger.error(f"Shutdown cleanup failed (non-fatal): {e}", exc_info=True)
 
 
 # Routers - health endpoints are public for monitoring

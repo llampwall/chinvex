@@ -11,6 +11,15 @@ class VectorStore:
         self.client = chromadb.PersistentClient(path=str(persist_dir))
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - ensures cleanup."""
+        self.close()
+        return False
+
     def upsert(
         self,
         ids: list[str],
@@ -77,3 +86,25 @@ class VectorStore:
             return {"ids": [], "embeddings": []}
         result = self.collection.get(ids=ids, include=["embeddings"])
         return result
+
+    def close(self) -> None:
+        """
+        Close the ChromaDB client and release resources.
+
+        Should be called before application shutdown to ensure clean
+        connection termination, especially important on Windows.
+        """
+        if self.client is None:
+            return  # Already closed
+
+        try:
+            # Stop the ChromaDB system to close SQLite connections
+            if hasattr(self.client, '_system') and self.client._system is not None:
+                self.client._system.stop()
+        except Exception:
+            # Ignore errors during cleanup
+            pass
+
+        # Clear references to allow garbage collection
+        self.collection = None
+        self.client = None

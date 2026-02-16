@@ -4,20 +4,52 @@
 # Decisions
 
 ## Recent (last 30 days)
-- Added token-aware batching to OpenAI embeddings (prevents 300K token limit errors)
-- Skip `logs/` directories during ingestion (prevents bloat from JSON log files)
-- Filter empty strings before embedding (prevents provider errors)
-- Transform repo paths to dict format with metadata for strap integration
-- Add `--all` flag to purge command for batch context deletion
-- Implement CLAUDE.md management in update-memory skill (ensures Memory System docs present)
-- Replace Unicode output with ASCII-safe alternatives for Windows compatibility
-- Complete P5.3 eval suite with golden queries, metrics, and CI gate
-- Complete P5.4 reranker with Cohere, Jina, and local cross-encoder providers
+- Implemented proper connection management for ChromaDB and SQLite (fixes Windows file lock errors)
+- Fixed OpenAI as default embedding provider; search reads provider from meta.json (prevents dimension mismatch)
+- Added automatic context.json backup system (30 backups per context, auto-prune)
+- Created using-chinvex skill for Claude Code and Codex with full CLI workflow docs
+- Documented using-chinvex skill in README with Skills for AI Agents section
 - Add `chinvex context sync-metadata-from-strap` command to sync registry.json → context.json
 - Implement .chinvex-status.json files with PID tracking for dashboard integration
 - Exclude status files from sync daemon to prevent infinite loop
+- Complete P5.3 eval suite with golden queries, metrics, and CI gate
+- Complete P5.4 reranker with Cohere, Jina, and local cross-encoder providers
 
 ## 2026-02
+
+### 2026-02-16 — Implemented proper connection management for ChromaDB and SQLite
+
+- **Why:** Gateway restarts and file deletions were failing with Windows PermissionError [WinError 32] due to lingering database connections. ChromaDB's internal SQLite connections were not being closed, causing file locks.
+- **Decision:** Use ChromaDB's internal `client._system.stop()` method to properly shut down connections. Add `VectorStore.close()` method and context manager support. Add gateway shutdown handler.
+- **Impact:**
+  - Added `VectorStore.close()` method that calls `client._system.stop()` to release SQLite connections
+  - Added context manager support (`__enter__`, `__exit__`) to VectorStore for automatic cleanup
+  - Added gateway shutdown handler (`@app.on_event("shutdown")`) that calls `Storage.force_close_global_connection()`
+  - Updated gateway warmup and healthz endpoint to close VectorStore after use
+  - Created comprehensive tests in `test_vector_store_cleanup.py` - all pass on Windows
+  - Documented in `docs/CONNECTION_MANAGEMENT.md`
+- **Alternatives Considered:** Simply setting `client = None` doesn't work because Python's GC is non-deterministic and ChromaDB's background threads keep references alive
+- **Evidence:** Test failures before fix showed `PermissionError: [WinError 32] The process cannot access the file because it is being used by another process` on `chroma.sqlite3`. After fix, all tests pass and temp directories clean up successfully.
+
+### 2026-02-10 — Added using-chinvex skill for Claude Code and Codex
+
+- **Why:** Agents needed comprehensive reference for all chinvex CLI workflows, gotchas, and best practices
+- **Impact:** New skill at `skills/using-chinvex/SKILL.md` symlinked to `.claude/skills` and `.codex/skills`. Covers search, ingest, context management, sync daemon, provider switching, depth changes
+- **Evidence:** 81aecf6, 3558ef9
+
+### 2026-02-09 — Added automatic backup system for context.json files
+
+- **Why:** Prevent data loss from accidental edits or schema migrations to context.json
+- **Impact:** Automatic backups before every context.json write to `P:\ai_memory\backups\<name>\`. Keeps 30 most recent per context. Configurable via `CHINVEX_BACKUPS_ROOT`. Integrated into 9 write locations
+- **Evidence:** 735ee72
+
+### 2026-02-07 — Fixed OpenAI as default embedding provider in search
+
+- **Symptom:** Dimension mismatch errors when querying contexts ingested with OpenAI
+- **Root cause:** `hybrid_search_from_context` hardcoded Ollama embedder (1024 dims) for query generation, but contexts were ingested with OpenAI (1536 dims)
+- **Fix:** Search now reads embedding provider from meta.json. Removed Ollama fallbacks. Errors if meta.json missing
+- **Prevention:** Never hardcode embedding provider; always read from meta.json
+- **Evidence:** bc68ab7
 
 ### 2026-02-05 — Added chinvex context sync-metadata-from-strap command
 

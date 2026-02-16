@@ -62,9 +62,12 @@ async def healthz():
             # Try to access vector store
             from chinvex.vectors import VectorStore
             vec_store = VectorStore(test_context.index.chroma_dir)
-            # Try to get collection metadata
-            vec_store.collection.count()
-            checks["chroma"] = {"status": "ok"}
+            try:
+                # Try to get collection metadata
+                vec_store.collection.count()
+                checks["chroma"] = {"status": "ok"}
+            finally:
+                vec_store.close()  # Clean up connection
         else:
             checks["chroma"] = {"status": "skip"}
     except Exception:
