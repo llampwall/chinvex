@@ -931,22 +931,18 @@ def _purge_context_data(
     contexts_root: Path,
 ) -> tuple[bool, str | None]:
     """
-    Completely purge a context - deletes the entire context directory.
+    Completely purge a context - deletes the context directory and its index directory.
 
     Returns:
         (success, error_message) tuple
     """
-    import shutil
-    from .context import ContextNotFoundError
-
     context_dir = contexts_root / ctx_name
 
     if not context_dir.exists():
         return (False, f"Context '{ctx_name}' does not exist")
 
     try:
-        # Delete the entire context directory
-        shutil.rmtree(context_dir)
+        _delete_context(ctx_name)
         return (True, None)
     except PermissionError as e:
         return (False, f"Permission denied for '{ctx_name}': {e}")
